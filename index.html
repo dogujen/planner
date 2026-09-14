@@ -32,7 +32,12 @@
   .tray { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
   .tray .pick { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 12px;
                 border: 1px solid var(--accent); border-radius: 10px;
-                background: var(--accent-soft); white-space: nowrap; }
+                background: var(--accent-soft); white-space: nowrap; cursor: pointer;
+                transition: all 0.15s ease; position: relative; }
+  .tray .pick:hover, .tray .pick:focus-within { border-color: var(--accent); box-shadow: 0 2px 8px rgba(37,99,235,0.15); }
+  .tray .pick.pick-locked { border-color: #f59e0b; background: rgba(245,158,11,0.14); }
+  .tray .pick.pick-blocked { border-color: #ef4444; background: rgba(239,68,68,0.14); }
+  .pick-badge { font-size: 11px; margin-left: 2px; vertical-align: middle; }
   .pick-info { display: flex; flex-direction: column; gap: 1px; }
   .pick-code { font-weight: 600; font-size: 13px; line-height: 1.25; color: var(--ink); }
   .pick-akts { font-weight: 500; font-size: 11px; color: var(--muted); margin-left: 4px; }

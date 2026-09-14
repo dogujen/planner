@@ -261,8 +261,22 @@
     box.appendChild(head);
 
     for (const course of chosen) {
+      const preferred = state.preferredSections.get(course.base);
+      const locked    = state.lockedSections.get(course.base);
+      const blocked   = state.blockedSections.get(course.base);
+      const hasPref   = preferred && preferred.size > 0;
+      const hasLock   = locked    && locked.size > 0;
+      const hasBlock  = blocked   && blocked.size > 0;
+
+      let statusBadge = '';
+      if (hasLock) statusBadge += ' 🔒';
+      if (hasBlock) statusBadge += ' 🚫';
+      if (hasPref) statusBadge += ' ★';
+
       const pick = document.createElement('div');
-      pick.className = 'pick';
+      pick.className = 'pick' + (hasLock ? ' pick-locked' : '') + (hasBlock ? ' pick-blocked' : '');
+      pick.dataset.base = course.base;
+      pick.tabIndex = 0;
 
       const info = document.createElement('div');
       info.className = 'pick-info';
@@ -270,6 +284,13 @@
       const codeLine = document.createElement('div');
       codeLine.className = 'pick-code';
       codeLine.textContent = course.base + ' ';
+
+      if (statusBadge) {
+        const badgeSpan = document.createElement('span');
+        badgeSpan.className = 'pick-badge';
+        badgeSpan.textContent = statusBadge;
+        codeLine.appendChild(badgeSpan);
+      }
 
       const aktsSpan = document.createElement('span');
       aktsSpan.className = 'pick-akts';
@@ -289,7 +310,10 @@
       remove.type = 'button';
       remove.textContent = '×';
       remove.title = 'Çıkar';
-      remove.addEventListener('click', () => deselect(course.base));
+      remove.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deselect(course.base);
+      });
 
       pick.appendChild(info);
       pick.appendChild(remove);
@@ -422,12 +446,11 @@
 
   function wireTooltip() {
     const tip = $('tip');
-    const chips = $('chips');
     let activeChip = null;
     let hideTimer = null;
 
-    function positionTip(chip) {
-      const box = chip.getBoundingClientRect();
+    function positionTip(elem) {
+      const box = elem.getBoundingClientRect();
       const tipBox = tip.getBoundingClientRect();
       tip.style.left = Math.max(0, Math.min(box.left, window.innerWidth - 340)) + 'px';
       const fitsBelow = box.bottom + 8 + tipBox.height <= window.innerHeight;
@@ -436,14 +459,16 @@
         : Math.max(0, box.top - 8 - tipBox.height) + 'px';
     }
 
-    function showTip(chip) {
-      const course = state.courses.find((c) => c.base === chip.dataset.base);
+    function showTip(elem) {
+      const base = elem.dataset.base;
+      if (!base) return;
+      const course = state.courses.find((c) => c.base === base);
       if (!course) return;
-      activeChip = chip;
+      activeChip = elem;
       tip.innerHTML = tooltipFor(course);
       tip.style.display = 'block';
       // Position after render so dimensions are known.
-      positionTip(chip);
+      positionTip(elem);
     }
 
     function hideTip() {
@@ -459,18 +484,20 @@
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     }
 
-    // Chips are checkboxes, so they are reached by Tab as well as by pointer:
-    // a hover-only tooltip hides every detail from keyboard users.
-    for (const name of ['mouseover', 'focusin']) {
-      chips.addEventListener(name, (event) => {
-        const chip = event.target.closest('.chip');
-        if (chip) { cancelHide(); showTip(chip); }
-      });
-    }
-    for (const name of ['mouseout', 'focusout']) {
-      chips.addEventListener(name, (event) => {
-        if (event.target.closest('.chip')) scheduleHide();
-      });
+    // Bind hover and focus to both chip list (#chips) and selected tray (#tray)
+    const containers = [$('chips'), $('tray')].filter(Boolean);
+    for (const container of containers) {
+      for (const name of ['mouseover', 'focusin']) {
+        container.addEventListener(name, (event) => {
+          const item = event.target.closest('.chip, .pick');
+          if (item) { cancelHide(); showTip(item); }
+        });
+      }
+      for (const name of ['mouseout', 'focusout']) {
+        container.addEventListener(name, (event) => {
+          if (event.target.closest('.chip, .pick')) scheduleHide();
+        });
+      }
     }
 
     // Keep tip visible when mouse enters it.
@@ -491,6 +518,8 @@
         // Click anywhere else on row (or star icon) = toggle preference star.
         togglePreference(base, code);
       }
+      // Re-render tray to sync badges on selected items
+      renderTray();
       // Re-render tooltip content in place (keep visible).
       const course = state.courses.find((c) => c.base === base);
       if (course) {
