@@ -179,7 +179,12 @@
   }
 
   function chipLabel(course) {
-    return escapeHtml(course.base) + '<span class="cr"> · ' + escapeHtml(aktsOrCredit(course)) + '</span>';
+    const head = '<span class="chip-head"><strong>' + escapeHtml(course.base) + '</strong>' +
+      '<span class="cr"> · ' + escapeHtml(aktsOrCredit(course)) + '</span></span>';
+    const title = course.title
+      ? '<span class="chip-title">' + escapeHtml(course.title) + '</span>'
+      : '';
+    return head + title;
   }
 
   function renderChips() {
