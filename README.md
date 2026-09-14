@@ -7,4 +7,5 @@
 
 
 </br>
+
 Modifiye olmamış halinin kaynak kodu ve gerekli detaylar: [Tıkla!](https://github.com/AlpDurak/universite-ders-planlayici/)
