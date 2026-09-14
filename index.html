@@ -30,12 +30,17 @@
               background: var(--card); border-radius: 8px; font: inherit; cursor: pointer; }
 
   .tray { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
-  .tray .pick { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px;
-                border: 1px solid var(--accent); border-radius: 999px;
+  .tray .pick { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 12px;
+                border: 1px solid var(--accent); border-radius: 10px;
                 background: var(--accent-soft); white-space: nowrap; }
+  .pick-info { display: flex; flex-direction: column; gap: 1px; }
+  .pick-code { font-weight: 600; font-size: 13px; line-height: 1.25; color: var(--ink); }
+  .pick-akts { font-weight: 500; font-size: 11px; color: var(--muted); margin-left: 4px; }
+  .pick-title { font-size: 11px; color: var(--muted); line-height: 1.25;
+                max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tray .pick button { border: 0; background: none; font: inherit; line-height: 1; cursor: pointer;
-                       color: var(--muted); padding: 2px 6px; border-radius: 999px; }
-  .tray .pick button:hover { background: #fff; color: #b91c1c; }
+                       color: var(--muted); padding: 2px 6px; border-radius: 999px; margin-left: 4px; }
+  .tray .pick button:hover { background: rgba(255,255,255,0.8); color: #b91c1c; }
   .note { margin: 4px 0 12px; }
 
   .bar { position: sticky; top: 0; z-index: 5; background: var(--card);

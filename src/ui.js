@@ -172,9 +172,14 @@
       'karşılaştırıp doğrula: kesilmiş ama geçerli görünen bir saat uyarı üretmez.</p>';
   }
 
+  function aktsOrCredit(course) {
+    if (course.akts != null && course.akts > 0) return course.akts + ' AKTS';
+    if (course.credit > 0) return course.credit + ' Kredi';
+    return '—';
+  }
+
   function chipLabel(course) {
-    const credit = course.credit > 0 ? course.credit : '—';
-    return escapeHtml(course.base) + '<span class="cr"> · ' + escapeHtml(credit) + '</span>';
+    return escapeHtml(course.base) + '<span class="cr"> · ' + escapeHtml(aktsOrCredit(course)) + '</span>';
   }
 
   function renderChips() {
@@ -246,22 +251,42 @@
 
     const head = document.createElement('span');
     head.className = 'sub';
+    head.style.width = '100%';
     head.textContent = 'Seçilen dersler (' + chosen.length + '):';
     box.appendChild(head);
 
     for (const course of chosen) {
-      const pick = document.createElement('span');
+      const pick = document.createElement('div');
       pick.className = 'pick';
-      const name = document.createElement('span');
-      // textContent, not innerHTML: course codes come from the spreadsheet.
-      name.textContent = course.base + (course.credit > 0 ? ' · ' + course.credit : '');
+
+      const info = document.createElement('div');
+      info.className = 'pick-info';
+
+      const codeLine = document.createElement('div');
+      codeLine.className = 'pick-code';
+      codeLine.textContent = course.base + ' ';
+
+      const aktsSpan = document.createElement('span');
+      aktsSpan.className = 'pick-akts';
+      aktsSpan.textContent = '· ' + aktsOrCredit(course);
+      codeLine.appendChild(aktsSpan);
+      info.appendChild(codeLine);
+
+      if (course.title) {
+        const titleLine = document.createElement('div');
+        titleLine.className = 'pick-title';
+        titleLine.textContent = course.title;
+        titleLine.title = course.title;
+        info.appendChild(titleLine);
+      }
+
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.textContent = '×';
-      remove.title = course.base + ' dersini çıkar';
-      remove.setAttribute('aria-label', course.base + ' dersini seçimden çıkar');
+      remove.title = 'Çıkar';
       remove.addEventListener('click', () => deselect(course.base));
-      pick.appendChild(name);
+
+      pick.appendChild(info);
       pick.appendChild(remove);
       box.appendChild(pick);
     }
