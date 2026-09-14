@@ -109,10 +109,18 @@
                      color: var(--muted); display: none; }
   button.share-btn.visible { display: inline-flex; align-items: center; gap: 5px; }
   button.share-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .top-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .theme-btn { border: 1px solid var(--line); background: var(--card); color: var(--ink);
+               border-radius: 999px; width: 38px; height: 38px; display: flex;
+               align-items: center; justify-content: center; cursor: pointer; font-size: 18px;
+               transition: all 0.2s ease; flex: none; margin-top: 4px; }
+  .theme-btn:hover { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.05); }
+
   /* Interactive tooltip */
-  #tip { pointer-events: auto; cursor: default; min-width: 260px; }
+  #tip { pointer-events: auto; cursor: default; min-width: 270px; }
   .tip-hint { font-size: 10px; color: #9ca3af; margin: 4px 0 4px; }
   .tip-hint-locked { color: #fbbf24; font-weight: 600; }
+  .tip-hint-blocked { color: #f87171; font-weight: 600; }
   .tip-sections { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
   .tip-kind-label { font-size: 9px; font-weight: 700; letter-spacing: .06em; color: #6b7280;
                     text-transform: uppercase; margin: 6px 0 2px; padding-left: 4px; }
@@ -121,13 +129,52 @@
   .tip-row:hover { background: rgba(255,255,255,0.12); }
   .tip-row.tip-pref { background: rgba(250,204,21,0.15); }
   .tip-row.tip-locked { background: rgba(239,68,68,0.18); outline: 1px solid rgba(239,68,68,0.4); }
+  .tip-row.tip-blocked { background: rgba(156,163,175,0.2); opacity: 0.55; text-decoration: line-through; }
   .tip-star { flex: none; font-size: 12px; }
   .tip-lock { flex: none; font-size: 11px; opacity: 0.65; cursor: pointer; }
+  .tip-block { flex: none; font-size: 11px; opacity: 0.65; cursor: pointer; }
+  .tip-row:hover .tip-lock, .tip-row:hover .tip-block { opacity: 0.95; }
   .tip-row.tip-locked .tip-lock { opacity: 1; }
+  .tip-row.tip-blocked .tip-block { opacity: 1; text-decoration: none; }
   .tip-code { font-family: ui-monospace, monospace; font-weight: 700; flex: none; min-width: 24px; }
   .tip-inst { color: #d1d5db; flex: 1; }
   .tip-slot { color: #93c5fd; flex: none; white-space: nowrap; }
   .tip-sub { color: #9ca3af; }
+
+  /* Dark theme overrides */
+  body.dark-theme {
+    --bg: #0f172a; --card: #1e293b; --ink: #f8fafc; --muted: #94a3b8;
+    --line: #334155; --accent: #3b82f6; --accent-soft: rgba(59,130,246,0.18);
+    --warn: #fbbf24; --warn-soft: rgba(245,158,11,0.15);
+  }
+  body.dark-theme #search, body.dark-theme select, body.dark-theme input[type=number] {
+    background: #0f172a; color: #f8fafc; border-color: #334155;
+  }
+  body.dark-theme #preset { background: #064e3b; color: #a7f3d0; border-color: #059669; }
+  body.dark-theme #preset:hover { background: #047857; }
+  body.dark-theme #preset svg { stroke: #34d399; }
+  body.dark-theme .err { background: #450a0a; border-color: #991b1b; color: #fca5a5; }
+  body.dark-theme .badge { background: rgba(245,158,11,0.2); color: #fbbf24; border-color: #78350f; }
+  body.dark-theme .cal td.clash {
+    background: repeating-linear-gradient(45deg, #7f1d1d, #7f1d1d 6px, #991b1b 6px, #991b1b 12px);
+    color: #fca5a5; border-color: #ef4444;
+  }
+  body.dark-theme .cal td.busy .cal-title { color: #f8fafc; }
+  body.dark-theme .cal td.busy .cal-inst { color: #cbd5e1; }
+  body.dark-theme .tag { color: #f8fafc; }
+  body.dark-theme #tip { background: #0f172a; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+  body.dark-theme #rechoose { background: #0f172a; color: #f8fafc; border-color: #334155; }
+  body.dark-theme .chip > span { background: #1e293b; border-color: #334155; color: #f8fafc; }
+  body.dark-theme .chip input:checked + span { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
+  body.dark-theme .tray .pick { border-color: #3b82f6; background: rgba(59,130,246,0.2); color: #93c5fd; }
+  body.dark-theme .tray .pick button { color: #94a3b8; }
+  body.dark-theme .tray .pick button:hover { background: #334155; color: #f87171; }
+  body.dark-theme .days button { background: #1e293b; border-color: #334155; color: #f8fafc; }
+  body.dark-theme .days button.on { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
+  body.dark-theme .alt-details { color: #94a3b8; }
+  body.dark-theme .alt-details summary { color: #cbd5e1; }
+  body.dark-theme .alt-details summary:hover { color: #ffffff; }
+
   #preset { display: flex; align-items: center; justify-content: center; gap: 10px;
             width: 100%; padding: 18px; margin-bottom: 16px; cursor: pointer;
             font: inherit; font-weight: 600; color: #14532d;
@@ -151,9 +198,16 @@
 </head>
 <body>
 <main>
-  <h1>Ders Programı İhtimalleri</h1>
-  <p class="sub">Ders programı XLSX dosyanı yükle, derslerini seç, en iyi haftalık programları gör.
-    Dosya bilgisayarından çıkmaz.</p>
+  <header class="top-header">
+    <div>
+      <h1>Ders Programı İhtimalleri</h1>
+      <p class="sub">Ders programı XLSX dosyanı yükle, derslerini seç, en iyi haftalık programları gör.
+        Dosya bilgisayarından çıkmaz.</p>
+    </div>
+    <button id="theme-toggle" type="button" class="theme-btn" title="Karanlık/Aydınlık Tema Değiştir" aria-label="Tema Değiştir">
+      <span id="theme-icon">🌙</span>
+    </button>
+  </header>
 
   <div id="drop">
     <div id="dropinner">

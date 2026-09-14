@@ -9,6 +9,8 @@
     preferredSections: new Map(),
     // Map<base, Set<code>>: user-locked sections — solver ONLY picks from these.
     lockedSections: new Map(),
+    // Map<base, Set<code>>: user-blocked sections — solver EXCLUDES these.
+    blockedSections: new Map(),
   };
 
   const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -43,6 +45,7 @@
     state.selected = new Set();
     state.preferredSections = new Map();
     state.lockedSections = new Map();
+    state.blockedSections = new Map();
   }
 
   // Spec §9.1: the drop zone is replaced by a compact summary, not removed —
@@ -280,15 +283,39 @@
     return state.lockedSections.get(base);
   }
 
+  function getBlocked(base) {
+    if (!state.blockedSections.has(base)) state.blockedSections.set(base, new Set());
+    return state.blockedSections.get(base);
+  }
+
   function togglePreference(base, code) {
     const set = getPreferred(base);
-    if (set.has(code)) set.delete(code); else set.add(code);
+    if (set.has(code)) set.delete(code);
+    else {
+      set.add(code);
+      getBlocked(base).delete(code);
+    }
     persist();
   }
 
   function toggleLock(base, code) {
     const set = getLocked(base);
-    if (set.has(code)) set.delete(code); else set.add(code);
+    if (set.has(code)) set.delete(code);
+    else {
+      set.add(code);
+      getBlocked(base).delete(code);
+    }
+    persist();
+  }
+
+  function toggleBlock(base, code) {
+    const set = getBlocked(base);
+    if (set.has(code)) set.delete(code);
+    else {
+      set.add(code);
+      getPreferred(base).delete(code);
+      getLocked(base).delete(code);
+    }
     persist();
   }
 
@@ -297,6 +324,7 @@
   function buildTooltipContent(course) {
     const preferred = getPreferred(course.base);
     const locked    = getLocked(course.base);
+    const blocked   = getBlocked(course.base);
 
     const dayNames = { M: 'Pzt', T: 'Sal', W: 'Çar', Th: 'Per', F: 'Cum', St: 'Cmt', Su: 'Paz' };
     const slotStr = (s) => s.slots.map((sl) => (dayNames[CourseParser.DAYS[sl.day]] || CourseParser.DAYS[sl.day]) + sl.hour).join(' ');
@@ -314,17 +342,23 @@
         sectionRows += '<div class="tip-kind-label">' + escapeHtml(KIND_LABEL[kind] || kind) + '</div>';
       }
       for (const s of sections) {
-        const isPref   = preferred.has(s.code);
-        const isLocked = locked.has(s.code);
-        const star     = isPref   ? '★' : '☆';
-        const lockIcon = isLocked ? '🔒' : '🔓';
+        const isPref    = preferred.has(s.code);
+        const isLocked  = locked.has(s.code);
+        const isBlocked = blocked.has(s.code);
+        const star      = isPref   ? '★' : '☆';
+        const lockIcon  = isLocked ? '🔒' : '🔓';
+        const blockIcon = '🚫';
         const slots = slotStr(s);
-        const rowClass = 'tip-row' + (isPref ? ' tip-pref' : '') + (isLocked ? ' tip-locked' : '');
+        const rowClass = 'tip-row' +
+          (isPref ? ' tip-pref' : '') +
+          (isLocked ? ' tip-locked' : '') +
+          (isBlocked ? ' tip-blocked' : '');
         sectionRows +=
           '<div class="' + rowClass + '" data-base="' + escapeHtml(course.base) +
           '" data-code="' + escapeHtml(s.code) + '">' +
-          '<span class="tip-star" data-action="star">' + star + '</span>' +
+          '<span class="tip-star" data-action="star" title="Bu şubeyi öne çıkar">' + star + '</span>' +
           '<span class="tip-lock" data-action="lock" title="Bu şubeyi zorunlu kıl">' + lockIcon + '</span>' +
+          '<span class="tip-block" data-action="block" title="Bu hocayı/şubeyi engelle">' + blockIcon + '</span>' +
           '<span class="tip-code">' + escapeHtml(s.sectionNo) + '</span>' +
           (s.instructor ? '<span class="tip-inst"> ' + escapeHtml(s.instructor) + '</span>' : '') +
           (slots ? '<span class="tip-slot"> ' + escapeHtml(slots) + '</span>' : '') +
@@ -336,10 +370,14 @@
     const quota = first && first.quota
       ? first.quota.left + ' / ' + first.quota.total + ' kontenjan'
       : '';
-    const hasLocked = locked.size > 0;
-    const hint = hasLocked
-      ? '<div class="tip-hint tip-hint-locked">🔒 Kilit aktif — sadece seçili şubeler deneniyor</div>'
-      : '<div class="tip-hint">☆ tercih · 🔓 zorunlu kıl</div>';
+    const hasLocked  = locked.size > 0;
+    const hasBlocked = blocked.size > 0;
+    let hint = '<div class="tip-hint">☆ tercih · 🔓 zorunlu · 🚫 engelle</div>';
+    if (hasLocked) {
+      hint = '<div class="tip-hint tip-hint-locked">🔒 Kilit aktif — sadece seçili şubeler deneniyor</div>';
+    } else if (hasBlocked) {
+      hint = '<div class="tip-hint tip-hint-blocked">🚫 Engelleme aktif — engellenen şubeler atlanıyor</div>';
+    }
 
     return '<b>' + escapeHtml(course.title || course.base) + '</b>' +
       (first && first.campus ? '<span class="tip-sub"> · ' + escapeHtml(first.campus) + '</span>' : '') +
@@ -409,7 +447,7 @@
     tip.addEventListener('mouseenter', cancelHide);
     tip.addEventListener('mouseleave', scheduleHide);
 
-    // Handle section-preference and lock clicks inside the tooltip.
+    // Handle section-preference, lock and block clicks inside the tooltip.
     tip.addEventListener('click', (event) => {
       const row = event.target.closest('.tip-row');
       if (!row) return;
@@ -417,8 +455,10 @@
       const action = event.target.dataset.action;
       if (action === 'lock') {
         toggleLock(base, code);
+      } else if (action === 'block') {
+        toggleBlock(base, code);
       } else {
-        // Click anywhere else on row = toggle preference star.
+        // Click anywhere else on row (or star icon) = toggle preference star.
         togglePreference(base, code);
       }
       // Re-render tooltip content in place (keep visible).
@@ -462,6 +502,10 @@
         .map(([base, set]) => [base, [...set]])
         .filter(([, arr]) => arr.length > 0);
       localStorage.setItem('dpi.locked', JSON.stringify(lockArr));
+      const blockArr = [...state.blockedSections.entries()]
+        .map(([base, set]) => [base, [...set]])
+        .filter(([, arr]) => arr.length > 0);
+      localStorage.setItem('dpi.blocked', JSON.stringify(blockArr));
     } catch (err) { /* private window or blocked storage: run without memory */ }
   }
 
@@ -483,6 +527,8 @@
       state.preferredSections = new Map(prefArr.map(([base, arr]) => [base, new Set(arr)]));
       const lockArr = JSON.parse(localStorage.getItem('dpi.locked') || '[]');
       state.lockedSections = new Map(lockArr.map(([base, arr]) => [base, new Set(arr)]));
+      const blockArr = JSON.parse(localStorage.getItem('dpi.blocked') || '[]');
+      state.blockedSections = new Map(blockArr.map(([base, arr]) => [base, new Set(arr)]));
     } catch (err) { state.selected = new Set(); }
   }
 
@@ -552,6 +598,7 @@
       persist();
     });
     wireTooltip();
+    initTheme();
     $('fdw').addEventListener('input', () => { $('fdwOut').textContent = $('fdw').value; });
     $('cmp').addEventListener('input', () => { $('cmpOut').textContent = $('cmp').value; });
     $('go').addEventListener('click', run);
@@ -586,12 +633,17 @@
     return state.prefs;
   }
 
-  const PALETTE = ['#dbeafe', '#dcfce7', '#fef3c7', '#fae8ff', '#ffe4e6',
-                   '#e0e7ff', '#ccfbf1', '#ffedd5'];
+  const PALETTE_LIGHT = ['#dbeafe', '#dcfce7', '#fef3c7', '#fae8ff', '#ffe4e6',
+                         '#e0e7ff', '#ccfbf1', '#ffedd5'];
+  const PALETTE_DARK  = ['#1e3a8a', '#064e3b', '#78350f', '#4c1d95', '#831843',
+                         '#312e81', '#134e4a', '#7c2d12'];
+
   function colourFor(base) {
     let hash = 0;
     for (let i = 0; i < base.length; i++) hash = (hash * 31 + base.charCodeAt(i)) >>> 0;
-    return PALETTE[hash % PALETTE.length];
+    const isDark = document.body.classList.contains('dark-theme');
+    const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
+    return palette[hash % palette.length];
   }
 
   // ---------------------------------------------------------------------------
@@ -825,34 +877,38 @@
 
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
-  // Section önceliklendirme ve kilitleme
+  // Section önceliklendirme, kilitleme ve engelleme
   // ---------------------------------------------------------------------------
   function applyPreferences(courses) {
     return courses.map((course) => {
       const preferred = state.preferredSections.get(course.base);  // Set<code>
       const locked    = state.lockedSections.get(course.base);     // Set<code>
+      const blocked   = state.blockedSections.get(course.base);    // Set<code>
       const hasPrefs   = preferred && preferred.size > 0;
       const hasLocked  = locked    && locked.size > 0;
-      if (!hasPrefs && !hasLocked) return course;
+      const hasBlocked = blocked   && blocked.size > 0;
+      if (!hasPrefs && !hasLocked && !hasBlocked) return course;
 
       // Helper: apply to one kind group.
       function processGroup(sections) {
+        let pool = sections;
+        if (hasBlocked) {
+          pool = pool.filter((s) => !blocked.has(s.code));
+        }
         if (hasLocked) {
           // Hard filter: only locked sections are allowed for this kind.
-          // If none of the locked codes belong to this kind, the kind is
-          // left untouched (locking a LEC section doesn’t restrict PS/LAB).
-          const kindLocked = sections.filter((s) => locked.has(s.code));
+          const kindLocked = pool.filter((s) => locked.has(s.code));
           if (kindLocked.length > 0) return kindLocked;
         }
         if (hasPrefs) {
           // Soft preference: reorder so preferred sections come first.
-          return sections.slice().sort((a, b) => {
+          return pool.slice().sort((a, b) => {
             const ap = preferred.has(a.code) ? 0 : 1;
             const bp = preferred.has(b.code) ? 0 : 1;
             return ap - bp;
           });
         }
-        return sections;
+        return pool;
       }
 
       return Object.assign({}, course, {
@@ -905,6 +961,33 @@
         (Date.now() - started) + ' ms';
       renderResults(output, chosen);
     }, 0);
+  }
+
+  function initTheme() {
+    const toggleBtn = $('theme-toggle');
+    const icon = $('theme-icon');
+    if (!toggleBtn || !icon) return;
+
+    const saved = localStorage.getItem('dpi.theme');
+    if (saved === 'dark') {
+      document.body.classList.add('dark-theme');
+      icon.textContent = '☀️';
+    } else {
+      document.body.classList.remove('dark-theme');
+      icon.textContent = '🌙';
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      const isDark = document.body.classList.toggle('dark-theme');
+      icon.textContent = isDark ? '☀️' : '🌙';
+      try {
+        localStorage.setItem('dpi.theme', isDark ? 'dark' : 'light');
+      } catch (e) {}
+      // Re-run solver/results if courses are currently selected so colors update
+      if (state.selected && state.selected.size > 0 && $('results').children.length > 0) {
+        run();
+      }
+    });
   }
 
   wire();
