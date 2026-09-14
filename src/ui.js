@@ -1,0 +1,912 @@
+'use strict';
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    courses: [], warnings: [], selected: new Set(), prefs: null, akts: false,
+    // Controls that are not scoring preferences but still worth remembering.
+    ui: { overlap: false, gno: '0' },
+    // Map<base, Set<code>>: user-preferred sections per course (key = full section code).
+    preferredSections: new Map(),
+    // Map<base, Set<code>>: user-locked sections — solver ONLY picks from these.
+    lockedSections: new Map(),
+  };
+
+  const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  // Spreadsheet-derived text (course codes, titles, instructor names, etc.) is
+  // attacker-controlled: escape it before it is interpolated into innerHTML.
+  function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, (ch) => ESCAPE_MAP[ch]);
+  }
+
+  function showError(message) {
+    $('error').textContent = message;
+    $('error').classList.remove('hidden');
+  }
+
+  // Diacritic-insensitive so 'ısı' matches 'İSİ'.
+  const fold = (s) => (s || '').toLocaleLowerCase('tr')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ş/g, 's')
+    .replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ç/g, 'c');
+
+  // Everything derived from the previously loaded file. Without this a second
+  // load would leave the first file's schedules, status line and selection on
+  // screen while the chip list showed the new file's courses.
+  function resetForNewFile() {
+    $('error').classList.add('hidden');
+    $('results').innerHTML = '';
+    $('status').textContent = '';
+    $('search').value = '';
+    $('tip').style.display = 'none';
+    state.courses = [];
+    state.warnings = [];
+    state.selected = new Set();
+    state.preferredSections = new Map();
+    state.lockedSections = new Map();
+  }
+
+  // Spec §9.1: the drop zone is replaced by a compact summary, not removed —
+  // removing it would make loading a second file impossible without a reload.
+  function togglePreset(show) {
+    const button = $('preset');
+    if (button) button.classList.toggle('hidden', !show);
+  }
+
+  function renderFileSummary(name) {
+    togglePreset(false);
+    $('drop').classList.add('loaded');
+    $('dropinner').innerHTML =
+      '<strong>' + escapeHtml(name) + '</strong>' +
+      '<span class="sub">' + state.courses.length + ' ders · ' +
+      state.warnings.length + ' uyarı</span>' +
+      '<button id="rechoose" type="button">Başka dosya seç</button>';
+  }
+
+  function applyPrefsToControls() {
+    $('fdw').value = state.prefs.freeDayWeight;
+    $('fdwOut').textContent = state.prefs.freeDayWeight;
+    $('cmp').value = state.prefs.compactness;
+    $('cmpOut').textContent = state.prefs.compactness;
+    // Without this line a restored maxGap is lost the moment the user solves:
+    // readPrefs() would read the still-empty #maxgap and write back null.
+    $('maxgap').value = state.prefs.maxGap == null ? '' : state.prefs.maxGap;
+    $('single').checked = state.prefs.avoidSingleCourseDays;
+    $('overlap').checked = state.ui.overlap;
+    const gno = $('gno');
+    if ([...gno.options].some((option) => option.value === state.ui.gno)) gno.value = state.ui.gno;
+  }
+
+  async function loadFile(file) {
+    await loadBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+  }
+
+  // The single load path. The file picker and the built-in schedule button both
+  // arrive here, so neither can drift away from the other's behaviour.
+  async function loadBytes(bytes, name) {
+    resetForNewFile();
+    try {
+      const { rows } = await XlsxReader.readWorkbook(bytes);
+      const cols = CourseParser.detectColumns(rows);
+      const built = CourseParser.buildCourses(rows, cols);
+      state.courses = built.courses;
+      state.warnings = built.warnings;
+      state.akts = Boolean(cols.akts);
+      state.prefs = Scoring.defaultPrefs();
+      restore();
+      loadFromUrl();   // apply ?alınanders= param if present
+      renderFileSummary(name);
+      $('app').classList.remove('hidden');
+      renderWarnings();
+      renderChips();
+      renderTray();
+      applyPrefsToControls();
+      renderSummary();
+      renderFreeDays();
+    } catch (err) {
+      showError(err.message || String(err));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // URL paylaşımı: ?alınanders=BASE1,BASE2.sectionPref
+  // ---------------------------------------------------------------------------
+  function buildShareUrl() {
+    const parts = [];
+    for (const base of state.selected) {
+      const prefs = state.preferredSections.get(base);
+      const prefList = prefs && prefs.size > 0 ? [...prefs] : [];
+      if (prefList.length > 0) {
+        parts.push(base + '.' + prefList[0]);
+      } else {
+        parts.push(base);
+      }
+    }
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('alınanders', parts.join(','));
+    return url.toString();
+  }
+
+  function loadFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('alınanders') || params.get('al%C4%B1nanders') || '';
+      if (!raw) return;
+      for (const token of raw.split(',')) {
+        const trimmed = token.trim();
+        if (!trimmed) continue;
+        // Format: BASE or BASE.sectionNo
+        const dotIdx = trimmed.lastIndexOf('.');
+        const hasSection = dotIdx > 0 && /^\d+$/.test(trimmed.slice(dotIdx + 1));
+        const base = hasSection ? trimmed.slice(0, dotIdx) : trimmed;
+        const sectionNo = hasSection ? trimmed.slice(dotIdx + 1) : null;
+        const course = state.courses.find((c) => c.base.toUpperCase() === base.toUpperCase());
+        if (!course) continue;
+        state.selected.add(course.base);
+        if (sectionNo) {
+          const set = state.preferredSections.get(course.base) || new Set();
+          set.add(sectionNo);
+          state.preferredSections.set(course.base, set);
+        }
+      }
+    } catch (e) { /* malformed URL — ignore */ }
+  }
+
+  function renderWarnings() {
+    const box = $('warnings');
+    if (state.warnings.length === 0) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    const list = state.warnings.slice(0, 12)
+      .map((w) => '<li><code>' + escapeHtml(w.code) + '</code> — ' +
+        escapeHtml(w.reason) + '</li>').join('');
+    const more = state.warnings.length > 12
+      ? '<li>…ve ' + (state.warnings.length - 12) + ' tane daha</li>' : '';
+    box.innerHTML = '<strong>' + state.warnings.length +
+      ' bölüm tam okunamadı ve planlamaya dahil edilmedi:</strong><ul>' + list + more + '</ul>' +
+      // Kesilmiş ama geçerli görünen bir saat (ör. "T2T3" iken "T2") tespit
+      // edilemez, bu yüzden uyarı listesi tam güvence vermez.
+      '<p class="sub">Yine de programındaki ders saatlerini resmi ders programıyla ' +
+      'karşılaştırıp doğrula: kesilmiş ama geçerli görünen bir saat uyarı üretmez.</p>';
+  }
+
+  function chipLabel(course) {
+    const credit = course.credit > 0 ? course.credit : '—';
+    return escapeHtml(course.base) + '<span class="cr"> · ' + escapeHtml(credit) + '</span>';
+  }
+
+  function renderChips() {
+    $('tip').style.display = 'none';
+    const query = fold($('search').value.trim());
+    const matches = state.courses.filter((course) => {
+      if (!query) return true;
+      const hay = fold(course.base + ' ' + course.title + ' ' +
+        course.groups.LEC.map((s) => s.instructor).join(' '));
+      return hay.includes(query);
+    });
+
+    const box = $('chips');
+    box.innerHTML = '';
+    for (const course of matches.slice(0, 400)) {
+      const label = document.createElement('label');
+      label.className = 'chip';
+      label.dataset.base = course.base;
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = state.selected.has(course.base);
+      input.addEventListener('change', () => {
+        if (input.checked) state.selected.add(course.base);
+        else state.selected.delete(course.base);
+        persist();
+        renderTray();
+        renderSummary();
+      });
+      const span = document.createElement('span');
+      span.innerHTML = chipLabel(course);
+      label.appendChild(input);
+      label.appendChild(span);
+      box.appendChild(label);
+    }
+    if (matches.length === 0) {
+      box.innerHTML = '<p class="sub">Eşleşen ders yok.</p>';
+    } else if (matches.length > 400) {
+      const note = document.createElement('p');
+      note.className = 'sub';
+      note.textContent = matches.length + ' dersten ilk 400 tanesi gösteriliyor — aramayı daraltın.';
+      box.appendChild(note);
+    }
+  }
+
+  function deselect(base) {
+    state.selected.delete(base);
+    persist();
+    // The chip for this course may be filtered out of view, so re-render the
+    // whole list rather than trying to untick one specific checkbox.
+    renderChips();
+    renderTray();
+    renderSummary();
+  }
+
+  // Spec §9.5. The chip list is capped at 400 entries and filtered by the search
+  // box, so without this tray a selected course can scroll out of existence and
+  // become impossible to remove.
+  function renderTray() {
+    const box = $('tray');
+    box.innerHTML = '';
+    const chosen = state.courses.filter((c) => state.selected.has(c.base));
+    if (chosen.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'sub';
+      empty.textContent = 'Henüz ders seçmedin.';
+      box.appendChild(empty);
+      return;
+    }
+
+    const head = document.createElement('span');
+    head.className = 'sub';
+    head.textContent = 'Seçilen dersler (' + chosen.length + '):';
+    box.appendChild(head);
+
+    for (const course of chosen) {
+      const pick = document.createElement('span');
+      pick.className = 'pick';
+      const name = document.createElement('span');
+      // textContent, not innerHTML: course codes come from the spreadsheet.
+      name.textContent = course.base + (course.credit > 0 ? ' · ' + course.credit : '');
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.title = course.base + ' dersini çıkar';
+      remove.setAttribute('aria-label', course.base + ' dersini seçimden çıkar');
+      remove.addEventListener('click', () => deselect(course.base));
+      pick.appendChild(name);
+      pick.appendChild(remove);
+      box.appendChild(pick);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Section preference & lock tooltip
+  // preferredSections and lockedSections use full section code (s.code) as key.
+  // ---------------------------------------------------------------------------
+
+  function getPreferred(base) {
+    if (!state.preferredSections.has(base)) state.preferredSections.set(base, new Set());
+    return state.preferredSections.get(base);
+  }
+
+  function getLocked(base) {
+    if (!state.lockedSections.has(base)) state.lockedSections.set(base, new Set());
+    return state.lockedSections.get(base);
+  }
+
+  function togglePreference(base, code) {
+    const set = getPreferred(base);
+    if (set.has(code)) set.delete(code); else set.add(code);
+    persist();
+  }
+
+  function toggleLock(base, code) {
+    const set = getLocked(base);
+    if (set.has(code)) set.delete(code); else set.add(code);
+    persist();
+  }
+
+  const KIND_LABEL = { LEC: 'Ders', LAB: 'Lab', PS: 'Problem Seansı' };
+
+  function buildTooltipContent(course) {
+    const preferred = getPreferred(course.base);
+    const locked    = getLocked(course.base);
+
+    const dayNames = { M: 'Pzt', T: 'Sal', W: 'Çar', Th: 'Per', F: 'Cum', St: 'Cmt', Su: 'Paz' };
+    const slotStr = (s) => s.slots.map((sl) => (dayNames[CourseParser.DAYS[sl.day]] || CourseParser.DAYS[sl.day]) + sl.hour).join(' ');
+
+    // Group by kind so LEC/PS/LAB sections are displayed separately.
+    const groups = [
+      { kind: 'LEC', sections: course.groups.LEC },
+      { kind: 'LAB', sections: course.groups.LAB },
+      { kind: 'PS',  sections: course.groups.PS  },
+    ].filter((g) => g.sections.length > 0);
+
+    let sectionRows = '';
+    for (const { kind, sections } of groups) {
+      if (groups.length > 1) {
+        sectionRows += '<div class="tip-kind-label">' + escapeHtml(KIND_LABEL[kind] || kind) + '</div>';
+      }
+      for (const s of sections) {
+        const isPref   = preferred.has(s.code);
+        const isLocked = locked.has(s.code);
+        const star     = isPref   ? '★' : '☆';
+        const lockIcon = isLocked ? '🔒' : '🔓';
+        const slots = slotStr(s);
+        const rowClass = 'tip-row' + (isPref ? ' tip-pref' : '') + (isLocked ? ' tip-locked' : '');
+        sectionRows +=
+          '<div class="' + rowClass + '" data-base="' + escapeHtml(course.base) +
+          '" data-code="' + escapeHtml(s.code) + '">' +
+          '<span class="tip-star" data-action="star">' + star + '</span>' +
+          '<span class="tip-lock" data-action="lock" title="Bu şubeyi zorunlu kıl">' + lockIcon + '</span>' +
+          '<span class="tip-code">' + escapeHtml(s.sectionNo) + '</span>' +
+          (s.instructor ? '<span class="tip-inst"> ' + escapeHtml(s.instructor) + '</span>' : '') +
+          (slots ? '<span class="tip-slot"> ' + escapeHtml(slots) + '</span>' : '') +
+          '</div>';
+      }
+    }
+
+    const first = (course.groups.LEC[0] || course.groups.LAB[0] || course.groups.PS[0]);
+    const quota = first && first.quota
+      ? first.quota.left + ' / ' + first.quota.total + ' kontenjan'
+      : '';
+    const hasLocked = locked.size > 0;
+    const hint = hasLocked
+      ? '<div class="tip-hint tip-hint-locked">🔒 Kilit aktif — sadece seçili şubeler deneniyor</div>'
+      : '<div class="tip-hint">☆ tercih · 🔓 zorunlu kıl</div>';
+
+    return '<b>' + escapeHtml(course.title || course.base) + '</b>' +
+      (first && first.campus ? '<span class="tip-sub"> · ' + escapeHtml(first.campus) + '</span>' : '') +
+      (quota ? '<span class="tip-sub"> · ' + escapeHtml(quota) + '</span>' : '') +
+      hint +
+      '<div class="tip-sections">' + sectionRows + '</div>';
+  }
+
+  function tooltipFor(course) {
+    return buildTooltipContent(course);
+  }
+
+  function wireTooltip() {
+    const tip = $('tip');
+    const chips = $('chips');
+    let activeChip = null;
+    let hideTimer = null;
+
+    function positionTip(chip) {
+      const box = chip.getBoundingClientRect();
+      const tipBox = tip.getBoundingClientRect();
+      tip.style.left = Math.max(0, Math.min(box.left, window.innerWidth - 340)) + 'px';
+      const fitsBelow = box.bottom + 8 + tipBox.height <= window.innerHeight;
+      tip.style.top = fitsBelow
+        ? (box.bottom + 8) + 'px'
+        : Math.max(0, box.top - 8 - tipBox.height) + 'px';
+    }
+
+    function showTip(chip) {
+      const course = state.courses.find((c) => c.base === chip.dataset.base);
+      if (!course) return;
+      activeChip = chip;
+      tip.innerHTML = tooltipFor(course);
+      tip.style.display = 'block';
+      // Position after render so dimensions are known.
+      positionTip(chip);
+    }
+
+    function hideTip() {
+      tip.style.display = 'none';
+      activeChip = null;
+    }
+
+    function scheduleHide() {
+      hideTimer = setTimeout(hideTip, 120);
+    }
+
+    function cancelHide() {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    }
+
+    // Chips are checkboxes, so they are reached by Tab as well as by pointer:
+    // a hover-only tooltip hides every detail from keyboard users.
+    for (const name of ['mouseover', 'focusin']) {
+      chips.addEventListener(name, (event) => {
+        const chip = event.target.closest('.chip');
+        if (chip) { cancelHide(); showTip(chip); }
+      });
+    }
+    for (const name of ['mouseout', 'focusout']) {
+      chips.addEventListener(name, (event) => {
+        if (event.target.closest('.chip')) scheduleHide();
+      });
+    }
+
+    // Keep tip visible when mouse enters it.
+    tip.addEventListener('mouseenter', cancelHide);
+    tip.addEventListener('mouseleave', scheduleHide);
+
+    // Handle section-preference and lock clicks inside the tooltip.
+    tip.addEventListener('click', (event) => {
+      const row = event.target.closest('.tip-row');
+      if (!row) return;
+      const { base, code } = row.dataset;
+      const action = event.target.dataset.action;
+      if (action === 'lock') {
+        toggleLock(base, code);
+      } else {
+        // Click anywhere else on row = toggle preference star.
+        togglePreference(base, code);
+      }
+      // Re-render tooltip content in place (keep visible).
+      const course = state.courses.find((c) => c.base === base);
+      if (course) {
+        tip.innerHTML = tooltipFor(course);
+        if (activeChip) positionTip(activeChip);
+      }
+    });
+  }
+
+  function renderSummary() {
+    const chosen = state.courses.filter((c) => state.selected.has(c.base));
+    const credits = chosen.reduce((sum, c) => sum + c.credit, 0);
+    $('credits').textContent = credits;
+    $('count').textContent = chosen.length;
+
+    const ceiling = Number($('gno').value);
+    const gauge = $('gauge');
+    if (!ceiling) { gauge.textContent = ''; return; }
+    if (state.akts) {
+      const total = chosen.reduce((sum, c) => sum + (c.akts || 0), 0);
+      gauge.textContent = total + ' / ' + ceiling + ' AKTS';
+    } else {
+      // The file carries local kredi, not AKTS, so this comparison is indicative only.
+      gauge.textContent = 'sınır ' + ceiling + ' AKTS — bu dosyada AKTS yok, ' +
+        'kredi ile karşılaştırma yaklaşıktır';
+    }
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem('dpi.selected', JSON.stringify([...state.selected]));
+      localStorage.setItem('dpi.prefs', JSON.stringify(state.prefs));
+      localStorage.setItem('dpi.ui', JSON.stringify(state.ui));
+      const prefArr = [...state.preferredSections.entries()]
+        .map(([base, set]) => [base, [...set]])
+        .filter(([, arr]) => arr.length > 0);
+      localStorage.setItem('dpi.preferred', JSON.stringify(prefArr));
+      const lockArr = [...state.lockedSections.entries()]
+        .map(([base, set]) => [base, [...set]])
+        .filter(([, arr]) => arr.length > 0);
+      localStorage.setItem('dpi.locked', JSON.stringify(lockArr));
+    } catch (err) { /* private window or blocked storage: run without memory */ }
+  }
+
+  function restore() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('dpi.selected') || '[]');
+      state.selected = new Set(saved.filter(
+        (base) => state.courses.some((c) => c.base === base)));
+      const prefs = JSON.parse(localStorage.getItem('dpi.prefs') || 'null');
+      if (prefs) state.prefs = Object.assign(Scoring.defaultPrefs(), prefs);
+      const ui = JSON.parse(localStorage.getItem('dpi.ui') || 'null');
+      if (ui) {
+        state.ui = {
+          overlap: Boolean(ui.overlap),
+          gno: String(ui.gno == null ? '0' : ui.gno),
+        };
+      }
+      const prefArr = JSON.parse(localStorage.getItem('dpi.preferred') || '[]');
+      state.preferredSections = new Map(prefArr.map(([base, arr]) => [base, new Set(arr)]));
+      const lockArr = JSON.parse(localStorage.getItem('dpi.locked') || '[]');
+      state.lockedSections = new Map(lockArr.map(([base, arr]) => [base, new Set(arr)]));
+    } catch (err) { state.selected = new Set(); }
+  }
+
+  function wire() {
+    const drop = $('drop');
+    drop.addEventListener('click', () => $('file').click());
+
+    // Built-in e-Campus.xlsx preset: fetch from the same origin (works under
+    // http:// but NOT under file://; for file:// the user must open the file).
+    const preset = $('preset');
+    if (preset) {
+      preset.addEventListener('click', async () => {
+        preset.disabled = true;
+        preset.querySelector('span').textContent = 'Yükleniyor…';
+        try {
+          const res = await fetch('e-Campus.xlsx');
+          if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
+          const buf = await res.arrayBuffer();
+          await loadBytes(new Uint8Array(buf), 'e-Campus.xlsx');
+        } catch (err) {
+          showError('Hazır ders programı açılamadı: ' + (err.message || String(err)));
+          preset.querySelector('span').textContent = 'e-Campus Ders Programını kullan';
+        } finally {
+          preset.disabled = false;
+        }
+      });
+    }
+
+    // Share button: copy share URL to clipboard.
+    const shareBtn = $('share');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', () => {
+        const url = buildShareUrl();
+        navigator.clipboard.writeText(url).then(() => {
+          const orig = shareBtn.textContent;
+          shareBtn.textContent = '✓ Kopyalandı';
+          setTimeout(() => { shareBtn.textContent = orig; }, 2000);
+        }).catch(() => {
+          // Fallback: prompt
+          prompt('Bu bağlantıyı kopyala:', url);
+        });
+      });
+    }
+
+    $('file').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      // Clear it so picking the SAME file twice still fires a change event.
+      e.target.value = '';
+      if (file) loadFile(file);
+    });
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('over');
+      if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+      else showError('Bir dosya bırakmalısınız (ör. .xlsx) — sürüklenen içerik dosya değil.');
+    });
+    $('search').addEventListener('input', renderChips);
+    $('gno').addEventListener('change', () => {
+      state.ui.gno = $('gno').value;
+      renderSummary();
+      persist();
+    });
+    $('overlap').addEventListener('change', () => {
+      state.ui.overlap = $('overlap').checked;
+      persist();
+    });
+    wireTooltip();
+    $('fdw').addEventListener('input', () => { $('fdwOut').textContent = $('fdw').value; });
+    $('cmp').addEventListener('input', () => { $('cmpOut').textContent = $('cmp').value; });
+    $('go').addEventListener('click', run);
+  }
+
+  function renderFreeDays() {
+    const box = $('freedays');
+    box.innerHTML = '';
+    for (const day of CourseParser.DAYS.slice(0, 6)) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = day;
+      button.className = state.prefs.freeDays.includes(day) ? 'on' : '';
+      button.addEventListener('click', () => {
+        const at = state.prefs.freeDays.indexOf(day);
+        if (at >= 0) state.prefs.freeDays.splice(at, 1);
+        else state.prefs.freeDays.push(day);
+        button.classList.toggle('on');
+        persist();
+      });
+      box.appendChild(button);
+    }
+  }
+
+  function readPrefs() {
+    state.prefs.freeDayWeight = Number($('fdw').value);
+    state.prefs.compactness = Number($('cmp').value);
+    const gap = $('maxgap').value;
+    state.prefs.maxGap = gap === '' ? null : Number(gap);
+    state.prefs.avoidSingleCourseDays = $('single').checked;
+    persist();
+    return state.prefs;
+  }
+
+  const PALETTE = ['#dbeafe', '#dcfce7', '#fef3c7', '#fae8ff', '#ffe4e6',
+                   '#e0e7ff', '#ccfbf1', '#ffedd5'];
+  function colourFor(base) {
+    let hash = 0;
+    for (let i = 0; i < base.length; i++) hash = (hash * 31 + base.charCodeAt(i)) >>> 0;
+    return PALETTE[hash % PALETTE.length];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Saat etiketi: 8:30'dan başlayıp 50dk ders + 10dk ara
+  // ---------------------------------------------------------------------------
+  function hourLabel(n) {
+    // Hour n starts at 8:30 + (n-1)*60 minutes
+    const startMin = 8 * 60 + 30 + (n - 1) * 60;
+    const endMin   = startMin + 50;
+    const fmt = (m) => Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
+    return n + ' · ' + fmt(startMin) + '–' + fmt(endMin);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Takvim: satırlar = günler, sütunlar = saatler
+  // ---------------------------------------------------------------------------
+  const DAY_TR = { M: 'Pzt', T: 'Sal', W: 'Çar', Th: 'Per', F: 'Cum', St: 'Cmt', Su: 'Paz' };
+
+  function calendarFor(entry) {
+    const usedDays = new Set();
+    for (const section of entry.sections) {
+      for (const slot of section.slots) usedDays.add(slot.day);
+    }
+    // Show weekdays always; show Sat/Sun only if used.
+    const days = CourseParser.DAYS
+      .map((code, index) => ({ code, index }))
+      .filter((d) => d.index < 5 || usedDays.has(d.index));
+
+    // Always show hours 1..MAX_HOUR so gaps between classes are clearly visible.
+    const MIN_HOUR = 1;
+    const MAX_H = CourseParser.MAX_HOUR;
+
+    // day:hour → list of sections occupying that slot.
+    const grid = new Map();
+    for (const section of entry.sections) {
+      for (const slot of section.slots) {
+        const key = slot.day + ':' + slot.hour;
+        const list = grid.get(key);
+        if (list) list.push(section); else grid.set(key, [section]);
+      }
+    }
+
+    const signature = (list) => (list ? list.map((s) => s.code).sort().join('+') : '');
+
+    // Build table: rows = days, cols = hours
+    let html = '<div class="scroll"><table class="cal"><thead><tr><th class="cal-day-hd"></th>';
+    for (let h = MIN_HOUR; h <= MAX_H; h++) {
+      html += '<th class="cal-hour-hd">' + escapeHtml(hourLabel(h)) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    for (const day of days) {
+      const dayLabel = DAY_TR[day.code] || day.code;
+      html += '<tr><th class="cal-day-cell">' + escapeHtml(dayLabel) + '</th>';
+
+      // skip[hour] > 0 means this column was already covered by a colspan cell.
+      const skip = {};
+      for (let h = MIN_HOUR; h <= MAX_H; h++) skip[h] = 0;
+
+      for (let h = MIN_HOUR; h <= MAX_H; h++) {
+        if (skip[h] > 0) { skip[h]--; continue; }
+
+        const list = grid.get(day.index + ':' + h);
+        if (!list) { html += '<td class="cal-empty"></td>'; continue; }
+
+        const sig = signature(list);
+        let span = 1;
+        while (h + span <= MAX_H &&
+               signature(grid.get(day.index + ':' + (h + span))) === sig) span++;
+        for (let s = 1; s < span; s++) skip[h + s] = 1;
+
+        if (list.length > 1) {
+          // Clash cell: show codes
+          const codes = list.map((s) => escapeHtml(s.code)).join(' / ');
+          html += '<td class="busy clash" colspan="' + span + '" title="' +
+            escapeHtml('Çakışma: ' + list.map((s) => s.code).join(' / ')) + '">' +
+            codes + '</td>';
+        } else {
+          const s = list[0];
+          // Title: strip trailing credit in parens, e.g. "CALC (3)" → "CALC"
+          const title = escapeHtml((s.title || s.base).replace(/\s*\(\d+\)\s*$/, ''));
+          const inst = s.instructor ? '<div class="cal-inst">' + escapeHtml(s.instructor) + '</div>' : '';
+          html += '<td class="busy" colspan="' + span + '" style="background:' +
+            colourFor(s.base) + '">' +
+            '<div class="cal-title">' + title + '</div>' + inst + '</td>';
+        }
+      }
+
+      html += '</tr>';
+    }
+
+    return html + '</tbody></table></div>';
+  }
+
+  // A course code shown in its calendar colour, so the culprit named here is
+  // the same colour the user has been looking at in the timetables.
+  function codeTag(base) {
+    return '<span class="tag" style="background:' + colourFor(base) + '">' +
+      escapeHtml(base) + '</span>';
+  }
+
+  // Turn a failed search into an explanation. Naming the pair that clashes and
+  // the hours it clashes on is the difference between "it did not work" and
+  // "drop this one course".
+  function renderDiagnosis(diagnosis) {
+    if (!diagnosis) {
+      return '<div class="card err">Çakışmayan hiçbir kombinasyon bulunamadı.</div>';
+    }
+
+    let html = '<div class="card err"><strong>Çakışmayan hiçbir kombinasyon bulunamadı.</strong>';
+
+    if (diagnosis.blockingPairs.length > 0) {
+      html += '<p>Şu dersler birbiriyle çakıştığı için birlikte alınamaz:</p><ul>';
+      for (const pair of diagnosis.blockingPairs) {
+        html += '<li>' + codeTag(pair.bases[0]) + ' ile ' + codeTag(pair.bases[1]) +
+          ' — ortak saatler: <strong>' + pair.cells.map(escapeHtml).join(', ') + '</strong></li>';
+      }
+      html += '</ul>';
+    } else if (diagnosis.higherOrder) {
+      html += '<p>Derslerin hiçbir ikilisi tek başına çakışmıyor, ama hepsi bir arada ' +
+        'haftaya sığmıyor. Bu yüzden tek bir suçlu ders yok — birini çıkarman gerekiyor.</p>';
+    }
+
+    if (diagnosis.dropCandidates.length > 0) {
+      html += '<p>Şu derslerden birini çıkarırsan geri kalanlar için program bulunur: ' +
+        diagnosis.dropCandidates.map(codeTag).join(' ') + '</p>';
+    } else if (!diagnosis.truncated && diagnosis.blockingPairs.length > 0) {
+      html += '<p>Tek bir dersi çıkarmak yetmiyor; en az iki ders değiştirmen gerekiyor.</p>';
+    }
+
+    if (diagnosis.truncated) {
+      html += '<p>Arama sınıra takıldığı için bu inceleme eksik olabilir. ' +
+        'Daha az ders seçersen daha kesin bir sonuç alırsın.</p>';
+    }
+
+    html += '<p class="sub">Madde 18/2 seçeneğini açmak da yardımcı olabilir: ' +
+      'en fazla iki dersin birer saati çakışabilir (danışman onayı gerekir).</p>';
+    return html + '</div>';
+  }
+
+  function renderResults(output, chosen) {
+    const box = $('results');
+    box.innerHTML = '';
+
+    const skipped = output.skipped || [];
+
+    // ---------------------------------------------------------------------------
+    // HARD ERROR: a course with locked sections ended up in `skipped`.
+    // The solver found valid schedules for the OTHER courses but the locked
+    // section could not be placed (it has no valid meeting times in the file).
+    // Show an error and refuse to display the partial schedules — the user
+    // said "this instructor or nothing at all".
+    // ---------------------------------------------------------------------------
+    const lockedAndSkipped = skipped.filter(
+      (base) => state.lockedSections.has(base) && state.lockedSections.get(base).size > 0
+    );
+    if (lockedAndSkipped.length > 0) {
+      box.innerHTML = '<div class="card err"><strong>🔒 Kilit hatası: kilitli şube zamanlanamadı</strong>' +
+        '<p>Aşağıdaki derslerin kilitli şubeleri ders programında geçerli bir saat icerimıyor ' +
+        '(kesilmiş veya boş), bu yüzden hiçbir programa yerleştirilemedi:<br>' +
+        '<strong>' + lockedAndSkipped.map(escapeHtml).join(', ') + '</strong></p>' +
+        '<p>Kilidi kaldırın veya farklı bir şube kilitleyin.</p></div>';
+      return;
+    }
+
+    // ---------------------------------------------------------------------------
+    // HARD ERROR: locked sections exist but the solver found 0 valid schedules.
+    // This means the locked section(s) conflict with other selected courses.
+    // ---------------------------------------------------------------------------
+    if (output.results.length === 0 && output.lockConflict) {
+      const conflictBases = output.lockConflictBases || [];
+      box.innerHTML = '<div class="card err"><strong>🔒 Kilit hatası: kilitli şube çakışıyor</strong>' +
+        '<p>Aşağıdaki derslerin kilitli şubeleri seçili diğer derslerle çakıştığı için hiçbir geçerli program üretilemedi:<br>' +
+        '<strong>' + conflictBases.map(escapeHtml).join(', ') + '</strong></p>' +
+        '<p>Kilidi kaldırın, çakışan dersi çıkarın ya da Madde 18 seçeneğini etkinleştirin.</p></div>';
+      return;
+    }
+
+    // Soft skipped warning (no lock involved).
+    const softSkipped = skipped.filter(
+      (base) => !(state.lockedSections.has(base) && state.lockedSections.get(base).size > 0)
+    );
+    if (softSkipped.length > 0) {
+      box.innerHTML += '<div class="card warn"><strong>Şu dersler programa eklenemedi: ' +
+        softSkipped.map(escapeHtml).join(', ') + '</strong><br>' +
+        'Bu derslerin ders saatleri dosyadan okunamadı, bu yüzden yerleştirilemediler. ' +
+        'Saatlerini resmi ders programından kendin kontrol etmelisin.</div>';
+    }
+
+    // Show the truncation notice regardless of whether any results were found.
+    if (output.truncated) {
+      box.innerHTML += '<div class="card warn">Arama sınıra takıldı — sonuçlar eksik olabilir. ' +
+        'Daha az ders seçersen tam sonuç alırsın.</div>';
+    }
+
+    if (output.results.length === 0) {
+      const nothingToPlan = chosen.length > 0 && skipped.length === chosen.length;
+      box.innerHTML += nothingToPlan
+        ? '<div class="card err">Seçtiğin derslerin hiçbirinin ders saati okunamadı, ' +
+          'bu yüzden program üretilemedi. Bu bir çakışma sorunu değil: dosyadaki saat ' +
+          'bilgileri eksik. Ders saatlerini içeren tam bir dosya yüklemeyi deneyebilirsin.</div>'
+        : renderDiagnosis(output.diagnosis);
+      return;
+    }
+
+    output.results.forEach((entry, index) => {
+      const card = document.createElement('div');
+      card.className = 'sched';
+      const breakdown = entry.breakdown
+        // The label is built from persisted prefs (a restored freeDays entry
+        // lands in it verbatim), so it is not trusted markup.
+        .map((item) => escapeHtml(item.label) + ' ' + (item.points > 0 ? '+' : '') + item.points)
+        .join(' · ') || 'nötr';
+      const badge = entry.overlapHours > 0
+        ? '<span class="badge">' + entry.overlapHours +
+          ' saat çakışma — danışman onayı gerekir</span>'
+        : '';
+      const alternates = entry.alternates.length
+        ? '<details class="alt-details"><summary>Alternatif şubeler (' +
+          entry.alternates.length + ')</summary><p class="sub" style="margin:6px 0 0">' +
+          entry.alternates.map((codes) => codes.map(escapeHtml).join(', ')).join(' | ') +
+          '</p></details>'
+        : '';
+      card.innerHTML = '<header><h3>#' + (index + 1) + '</h3>' +
+        '<span class="sub">puan ' + entry.score + '/100</span>' + badge + '</header>' +
+        calendarFor(entry) +
+        '<p class="sub">' + breakdown + '</p>' + alternates;
+      box.appendChild(card);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Section önceliklendirme ve kilitleme
+  // ---------------------------------------------------------------------------
+  function applyPreferences(courses) {
+    return courses.map((course) => {
+      const preferred = state.preferredSections.get(course.base);  // Set<code>
+      const locked    = state.lockedSections.get(course.base);     // Set<code>
+      const hasPrefs   = preferred && preferred.size > 0;
+      const hasLocked  = locked    && locked.size > 0;
+      if (!hasPrefs && !hasLocked) return course;
+
+      // Helper: apply to one kind group.
+      function processGroup(sections) {
+        if (hasLocked) {
+          // Hard filter: only locked sections are allowed for this kind.
+          // If none of the locked codes belong to this kind, the kind is
+          // left untouched (locking a LEC section doesn’t restrict PS/LAB).
+          const kindLocked = sections.filter((s) => locked.has(s.code));
+          if (kindLocked.length > 0) return kindLocked;
+        }
+        if (hasPrefs) {
+          // Soft preference: reorder so preferred sections come first.
+          return sections.slice().sort((a, b) => {
+            const ap = preferred.has(a.code) ? 0 : 1;
+            const bp = preferred.has(b.code) ? 0 : 1;
+            return ap - bp;
+          });
+        }
+        return sections;
+      }
+
+      return Object.assign({}, course, {
+        groups: {
+          LEC: processGroup(course.groups.LEC),
+          LAB: processGroup(course.groups.LAB),
+          PS:  processGroup(course.groups.PS),
+        },
+      });
+    });
+  }
+
+  function run() {
+    const chosen = state.courses.filter((c) => state.selected.has(c.base));
+    if (chosen.length === 0) { $('status').textContent = 'Önce ders seç.'; return; }
+    $('status').textContent = 'Hesaplanıyor…';
+    setTimeout(() => {
+      const started = Date.now();
+      const prefs = readPrefs();
+      const allowOverlap = $('overlap').checked;
+      const chosenWithPrefs = applyPreferences(chosen);
+      const output = Solver.solve(chosenWithPrefs, prefs, { limit: 10, allowOverlap: allowOverlap });
+
+      // Detect locked courses that ended up in the solver's skipped list.
+      // These have valid slots but got skipped because the solver couldn't place
+      // them with any other course — but that is handled in renderResults as a
+      // hard error (lockConflict).
+      // ALSO detect the separate case: 0 results because the locked section
+      // DOES have valid options but conflicts with everything during search.
+      if (output.results.length === 0) {
+        const skipped = output.skipped || [];
+        // Courses that have locks AND went to skipped (file-level 0 options):
+        // these are caught inside renderResults via lockedAndSkipped.
+        // Courses that have locks but were NOT skipped (they had options but
+        // all options conflicted during search):
+        const lockedNotSkipped = chosen.filter(
+          (c) => state.lockedSections.has(c.base) &&
+                 state.lockedSections.get(c.base).size > 0 &&
+                 !skipped.includes(c.base)
+        );
+        if (lockedNotSkipped.length > 0) {
+          output.lockConflict = true;
+          output.lockConflictBases = lockedNotSkipped.map((c) => c.base);
+        } else {
+          output.diagnosis = Solver.diagnose(chosenWithPrefs, prefs, { allowOverlap: allowOverlap });
+        }
+      }
+
+      $('status').textContent = output.considered + ' kombinasyon tarandı · ' +
+        (Date.now() - started) + ' ms';
+      renderResults(output, chosen);
+    }, 0);
+  }
+
+  wire();
+  window.UI = { state, renderChips, renderTray, renderSummary };
+})();

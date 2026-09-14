@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ders Programı İhtimalleri</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #ffffff; --ink: #1c2024; --muted: #6b7280;
+    --line: #e3e6ea; --accent: #2563eb; --accent-soft: #eaf1ff;
+    --warn: #b45309; --warn-soft: #fff7ed;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+         background: var(--bg); color: var(--ink); }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; margin-bottom: 16px; }
+
+  #drop { border: 2px dashed var(--line); border-radius: 10px; padding: 32px; text-align: center;
+          background: var(--card); cursor: pointer; margin-bottom: 16px; }
+  #drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  /* Once a file is loaded the zone shrinks to a summary line but stays a target,
+     so a second file can be dropped or picked without reloading the page. */
+  #drop.loaded { padding: 12px 16px; text-align: left; }
+  #drop.loaded #dropinner { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  #rechoose { margin-left: auto; padding: 5px 10px; border: 1px solid var(--line);
+              background: var(--card); border-radius: 8px; font: inherit; cursor: pointer; }
+
+  .tray { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  .tray .pick { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px;
+                border: 1px solid var(--accent); border-radius: 999px;
+                background: var(--accent-soft); white-space: nowrap; }
+  .tray .pick button { border: 0; background: none; font: inherit; line-height: 1; cursor: pointer;
+                       color: var(--muted); padding: 2px 6px; border-radius: 999px; }
+  .tray .pick button:hover { background: #fff; color: #b91c1c; }
+  .note { margin: 4px 0 12px; }
+
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--card);
+         border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+         margin-bottom: 16px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .stat b { font-size: 20px; } .stat span { color: var(--muted); }
+
+  #search { width: 100%; padding: 10px 12px; border: 1px solid var(--line);
+            border-radius: 8px; font: inherit; }
+
+  /* Content-sized chips in a wrapping row, so rows stay ragged rather than gridded. */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+           max-height: 340px; overflow-y: auto; }
+  .chip { position: relative; }
+  .chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .chip > span { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
+                 border-radius: 999px; background: var(--card); cursor: pointer;
+                 white-space: nowrap; user-select: none; }
+  .chip input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chip .cr { opacity: .65; margin-left: 6px; color: inherit; background: none; border-radius: 0;
+              padding: 0; }
+
+  #tip { position: fixed; z-index: 50; max-width: 320px; padding: 8px 10px; border-radius: 8px;
+         background: #111827; color: #fff; font-size: 12px; line-height: 1.45;
+         pointer-events: none; display: none; }
+  #tip b { display: block; margin-bottom: 4px; }
+
+  .warn { background: var(--warn-soft); border-color: #fed7aa; color: var(--warn); }
+  .err  { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+  .hidden { display: none !important; }
+
+  .prefs { display: flex; flex-wrap: wrap; gap: 24px; margin: 12px 0 16px; }
+  .prefs > div { min-width: 240px; flex: 1; }
+  .prefs label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 13px; }
+  .prefs input[type=range] { width: 100%; }
+  .days { display: flex; gap: 6px; flex-wrap: wrap; }
+  .days button { padding: 5px 10px; border: 1px solid var(--line); background: var(--card);
+                 border-radius: 999px; cursor: pointer; font: inherit; }
+  .days button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary { padding: 10px 16px; border: 0; border-radius: 8px; background: var(--accent);
+                   color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+
+  .sched { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+           padding: 16px; margin-bottom: 16px; break-inside: avoid; }
+  .sched header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .sched h3 { margin: 0; font-size: 16px; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px;
+           background: var(--warn-soft); color: var(--warn); border: 1px solid #fed7aa; }
+  .cal { width: 100%; border-collapse: collapse; table-layout: auto; }
+  .cal th, .cal td { border: 1px solid var(--line); padding: 4px 6px;
+                     font-size: 11px; text-align: center; vertical-align: top; }
+  /* Transposed layout: first column = day label */
+  .cal-day-hd { width: 40px; }
+  .cal-day-cell { width: 40px; font-weight: 600; color: var(--muted); white-space: nowrap; vertical-align: middle; }
+  .cal-hour-hd { white-space: nowrap; font-weight: 500; color: var(--muted); min-width: 110px; width: 110px; }
+  .cal-empty { background: var(--bg); }
+  .cal td.busy { font-weight: 600; vertical-align: top; padding: 5px 6px; }
+  .cal-title { font-weight: 600; font-size: 11px; line-height: 1.35; text-align: left; }
+  .cal-inst { font-size: 10px; color: var(--muted); margin-top: 3px; text-align: left;
+              font-weight: 400; line-height: 1.2; }
+  .cal td.clash { background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 6px,
+                  #fecaca 6px, #fecaca 12px); color: #b91c1c; border-color: #f87171; }
+  /* Alternates dropdown */
+  .alt-details { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .alt-details summary { cursor: pointer; color: var(--muted); display: inline; }
+  .alt-details summary:hover { color: var(--ink); }
+  /* Share button */
+  button.share-btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
+                     background: var(--card); font: inherit; font-size: 13px; cursor: pointer;
+                     color: var(--muted); display: none; }
+  button.share-btn.visible { display: inline-flex; align-items: center; gap: 5px; }
+  button.share-btn:hover { border-color: var(--accent); color: var(--accent); }
+  /* Interactive tooltip */
+  #tip { pointer-events: auto; cursor: default; min-width: 260px; }
+  .tip-hint { font-size: 10px; color: #9ca3af; margin: 4px 0 4px; }
+  .tip-hint-locked { color: #fbbf24; font-weight: 600; }
+  .tip-sections { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+  .tip-kind-label { font-size: 9px; font-weight: 700; letter-spacing: .06em; color: #6b7280;
+                    text-transform: uppercase; margin: 6px 0 2px; padding-left: 4px; }
+  .tip-row { display: flex; align-items: baseline; gap: 4px; padding: 3px 5px;
+             border-radius: 5px; cursor: pointer; font-size: 11px; }
+  .tip-row:hover { background: rgba(255,255,255,0.12); }
+  .tip-row.tip-pref { background: rgba(250,204,21,0.15); }
+  .tip-row.tip-locked { background: rgba(239,68,68,0.18); outline: 1px solid rgba(239,68,68,0.4); }
+  .tip-star { flex: none; font-size: 12px; }
+  .tip-lock { flex: none; font-size: 11px; opacity: 0.65; cursor: pointer; }
+  .tip-row.tip-locked .tip-lock { opacity: 1; }
+  .tip-code { font-family: ui-monospace, monospace; font-weight: 700; flex: none; min-width: 24px; }
+  .tip-inst { color: #d1d5db; flex: 1; }
+  .tip-slot { color: #93c5fd; flex: none; white-space: nowrap; }
+  .tip-sub { color: #9ca3af; }
+  #preset { display: flex; align-items: center; justify-content: center; gap: 10px;
+            width: 100%; padding: 18px; margin-bottom: 16px; cursor: pointer;
+            font: inherit; font-weight: 600; color: #14532d;
+            background: #f0fdf4; border: 2px solid #86efac; border-radius: 10px; }
+  #preset:hover { background: #dcfce7; border-color: #4ade80; }
+  #preset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #preset svg { width: 22px; height: 22px; flex: none; stroke: #16a34a; stroke-width: 1.8;
+                fill: none; stroke-linecap: round; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 5px;
+         font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+         font-size: 12px; color: #1c2024; }
+  .card.err ul { margin: 6px 0 0; padding-left: 20px; }
+  .card.err li { margin: 3px 0; }
+  .card.err p { margin: 8px 0 0; }
+  .scroll { overflow-x: auto; }
+  @media print {
+    #drop, .bar, .prefs-card, #search, .chips, .tray, #warnings { display: none !important; }
+    .sched { border-color: #999; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ders Programı İhtimalleri</h1>
+  <p class="sub">Ders programı XLSX dosyanı yükle, derslerini seç, en iyi haftalık programları gör.
+    Dosya bilgisayarından çıkmaz.</p>
+
+  <div id="drop">
+    <div id="dropinner">
+      <strong>XLSX dosyasını buraya sürükle</strong><br>
+      <span class="sub">veya tıklayarak seç</span>
+    </div>
+  </div>
+
+  <!-- The bundled schedule. Embedded as base64 in src/preset-schedule.js rather
+       than fetched, because fetch() of a local file is blocked under file://. -->
+  <button id="preset" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+      <line x1="3" y1="9" x2="21" y2="9"></line>
+      <line x1="3" y1="14" x2="21" y2="14"></line>
+      <line x1="9" y1="9" x2="9" y2="20"></line>
+      <line x1="15" y1="9" x2="15" y2="20"></line>
+    </svg>
+    <span>e-Campus Ders Programını kullan</span>
+  </button>
+  <!-- Outside #drop on purpose: a hidden input inside its own click handler's
+       element re-triggers that handler when opened programmatically. -->
+  <input id="file" type="file" accept=".xlsx" hidden>
+
+  <div id="error" class="card err hidden"></div>
+  <div id="warnings" class="card warn hidden"></div>
+
+  <div id="app" class="hidden">
+    <div class="bar">
+      <div class="stat"><b id="credits">0</b> <span>kredi seçildi</span></div>
+      <div class="stat"><b id="count">0</b> <span>ders</span></div>
+      <div class="stat">
+        <select id="gno">
+          <option value="0">GNO seç…</option>
+          <option value="30">1. sınıf — 30 AKTS</option>
+          <option value="31">GNO ≤ 2.49 — 31 AKTS</option>
+          <option value="37">GNO 2.50–3.49 — 37 AKTS</option>
+          <option value="43">GNO ≥ 3.50 — 43 AKTS</option>
+          <option value="45">ÇAP — 45 AKTS</option>
+        </select>
+        <span id="gauge" class="sub"></span>
+      </div>
+      <button id="share" type="button" class="share-btn visible">🔗 Paylaş</button>
+    </div>
+
+    <div class="card">
+      <input id="search" type="search" placeholder="Ders kodu, ad veya öğretim üyesi ara…">
+      <div id="tray" class="tray"></div>
+      <div id="chips" class="chips"></div>
+    </div>
+
+    <div class="card prefs-card">
+      <strong>Tercihler</strong>
+      <div class="prefs">
+        <div>
+          <label>Boş kalsın istediğin günler</label>
+          <div id="freedays" class="days"></div>
+          <label>Boş gün önemi <output id="fdwOut">200</output></label>
+          <input id="fdw" type="range" min="0" max="500" step="25" value="200">
+        </div>
+        <div>
+          <label>Sıkışık ↔ aralıklı <output id="cmpOut">0.5</output></label>
+          <input id="cmp" type="range" min="-1" max="1" step="0.1" value="0.5">
+          <label>En fazla boşluk (saat, boş = sınırsız)</label>
+          <input id="maxgap" type="number" min="0" max="12" placeholder="sınırsız">
+        </div>
+        <div>
+          <label><input id="single" type="checkbox" checked>
+            Tek derslik günlerden kaçın</label>
+          <label><input id="overlap" type="checkbox">
+            Madde 18/2: en fazla 2 ders 1'er saat çakışabilsin</label>
+        </div>
+      </div>
+      <p class="sub note">Ön koşul ve eş koşul kontrolü yapılmaz. Seçtiğin derslerin
+        ön koşullarını ve eş koşullarını kendin doğrulamalısın.</p>
+      <button id="go" class="primary">En iyi 10 programı hesapla</button>
+      <span id="status" class="sub"></span>
+    </div>
+
+    <div id="results"></div>
+  </div>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script src="src/xlsx-reader.js"></script>
+<script src="src/course-parser.js"></script>
+<script src="src/scoring.js"></script>
+<script src="src/solver.js"></script>
+<!-- preset-schedule.js removed: e-Campus.xlsx is loaded via fetch() -->
+<script src="src/ui.js"></script>
+</body>
+</html>
