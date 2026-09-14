@@ -330,13 +330,15 @@
       const course = byBase.get(parsed.base);
       course.groups[parsed.kind].push(section);
 
-      // Title and credit come from the parent lecture row only, so a lab never
-      // contributes a second credit for the same course.
-      if (parsed.kind === 'LEC') {
-        if (section.credit > 0 || !course.title) course.title = title.replace(CREDIT_RE, '').trim();
-        if (section.credit > 0) course.credit = section.credit;
-        // AKTS: take the first non-zero value seen for this course.
-        if (section.akts && !course.akts) course.akts = section.akts;
+      const cleanTitle = title.replace(CREDIT_RE, '').trim();
+      if (cleanTitle && (!course.title || parsed.kind === 'LEC')) {
+        course.title = cleanTitle;
+      }
+      if (parsed.kind === 'LEC' && section.credit > 0) {
+        course.credit = section.credit;
+      }
+      if (section.akts && !course.akts) {
+        course.akts = section.akts;
       }
     }
 
