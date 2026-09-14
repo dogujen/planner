@@ -502,9 +502,18 @@
 
   function renderSummary() {
     const chosen = state.courses.filter((c) => state.selected.has(c.base));
-    const credits = chosen.reduce((sum, c) => sum + c.credit, 0);
-    $('credits').textContent = credits;
     $('count').textContent = chosen.length;
+
+    const statSpan = $('credits').nextElementSibling;
+    if (state.akts) {
+      const totalAkts = chosen.reduce((sum, c) => sum + (c.akts || 0), 0);
+      $('credits').textContent = totalAkts;
+      if (statSpan) statSpan.textContent = 'AKTS seçildi';
+    } else {
+      const credits = chosen.reduce((sum, c) => sum + c.credit, 0);
+      $('credits').textContent = credits;
+      if (statSpan) statSpan.textContent = 'kredi seçildi';
+    }
 
     const ceiling = Number($('gno').value);
     const gauge = $('gauge');
