@@ -794,8 +794,42 @@
     const numStr = match[2];
     const results = new Set([s, prefix + numStr, normCode(s)]);
 
+    // Common department prefix aliases
+    const PREFIX_ALIASES = {
+      'CS': ['COMP', 'CSE'],
+      'COMP': ['CS', 'CSE'],
+      'CSE': ['CS', 'COMP'],
+      'IE': ['IND'],
+      'IND': ['IE'],
+      'EE': ['EEE', 'ELEC'],
+      'EEE': ['EE', 'ELEC'],
+      'ELEC': ['EE', 'EEE'],
+      'ME': ['MECH'],
+      'MECH': ['ME'],
+    };
+    if (PREFIX_ALIASES[prefix]) {
+      for (const altPrefix of PREFIX_ALIASES[prefix]) {
+        results.add(altPrefix + numStr);
+        results.add(normCode(altPrefix + numStr));
+      }
+    }
+
+    // Handle 3-digit <-> 4-digit conversion (e.g. CS101 <-> CS1001, MATH101 <-> MATH1001)
+    if (/^\d{3}$/.test(numStr)) {
+      const d1 = numStr[0];
+      const d23 = numStr.slice(1);
+      results.add(prefix + d1 + '00' + d23);
+      results.add(prefix + d1 + '0' + d23);
+      results.add(normCode(prefix + d1 + '00' + d23));
+    } else if (/^\d{4}$/.test(numStr)) {
+      const m4 = /^(\d)00?(\d{2})$/.exec(numStr);
+      if (m4) {
+        results.add(prefix + m4[1] + m4[2]);
+        results.add(normCode(prefix + m4[1] + m4[2]));
+      }
+    }
+
     // Handle 100X <-> 111X patterns (e.g. MATH1002 <-> MATH1112, PHYS1004 <-> PHYS1114)
-    // These require toggling TWO digits at once (pos 1 AND 2: "00" <-> "11")
     const m1000 = /^1[01]\d(\d)$/.exec(numStr);
     if (m1000) {
       const lastDigit = m1000[1];
@@ -817,7 +851,6 @@
     }
 
     // General rule: toggle any single 0<->1 digit in the number.
-    // Handles cases like MATH2104 <-> MATH2114 (3rd digit 0 vs 1).
     for (let i = 0; i < numStr.length; i++) {
       const c = numStr[i];
       if (c === '0' || c === '1') {
