@@ -188,7 +188,14 @@
   }
 
   function chipLabel(course) {
+    const hasLab = course.groups.LAB && course.groups.LAB.length > 0;
+    const hasPs  = course.groups.PS  && course.groups.PS.length > 0;
+    let badges = '';
+    if (hasLab) badges += ' <span class="kind-badge lab-badge">LAB</span>';
+    if (hasPs)  badges += ' <span class="kind-badge ps-badge">PS</span>';
+
     const head = '<span class="chip-head"><strong>' + escapeHtml(course.base) + '</strong>' +
+      badges +
       '<span class="cr"> · ' + escapeHtml(aktsOrCredit(course)) + '</span></span>';
     const title = course.title
       ? '<span class="chip-title">' + escapeHtml(course.title) + '</span>'
@@ -201,8 +208,12 @@
     const query = fold($('search').value.trim());
     const matches = state.courses.filter((course) => {
       if (!query) return true;
-      const hay = fold(course.base + ' ' + course.title + ' ' +
-        course.groups.LEC.map((s) => s.instructor).join(' '));
+      const allInst = [
+        ...(course.groups.LEC || []),
+        ...(course.groups.LAB || []),
+        ...(course.groups.PS  || []),
+      ].map((s) => s.instructor).join(' ');
+      const hay = fold(course.base + ' ' + course.title + ' ' + allInst);
       return hay.includes(query);
     });
 
@@ -825,9 +836,13 @@
           const s = list[0];
           // Title: strip trailing credit in parens, e.g. "CALC (3)" → "CALC"
           const title = escapeHtml((s.title || s.base).replace(/\s*\(\d+\)\s*$/, ''));
+          const kindTag = s.kind === 'LAB' ? ' <span class="cal-kind lab-kind">[LAB]</span>' :
+                          s.kind === 'PS'  ? ' <span class="cal-kind ps-kind">[PS]</span>' : '';
+          const codeTag = '<div class="cal-code">' + escapeHtml(s.code) + kindTag + '</div>';
           const inst = s.instructor ? '<div class="cal-inst">' + escapeHtml(s.instructor) + '</div>' : '';
           html += '<td class="busy" colspan="' + span + '" style="background:' +
             colourFor(s.base) + '">' +
+            codeTag +
             '<div class="cal-title">' + title + '</div>' + inst + '</td>';
         }
       }

@@ -9,14 +9,15 @@
 
   // Longer tokens first, or 'Th4' mis-parses as 'T' followed by junk.
   const SLOT_RE = /(Th|St|Su|M|T|W|F)(\d{1,2})/g;
-  const CODE_RE = /^(.+?)(?:-(L|PS))?\.(\d+(?:\.\d+)?)$/u;
+  const CODE_RE = /^(.+?)(?:[-_](L|LAB|PS|PR|REC|DIS))?\.(\d+(?:\.\d+)?)$/i;
   const CREDIT_RE = /\((\d+)\)\s*$/;
 
   function parseCode(raw) {
     if (!raw) return null;
     const match = CODE_RE.exec(String(raw).trim());
     if (!match) return null;
-    const kind = match[2] === 'L' ? 'LAB' : match[2] === 'PS' ? 'PS' : 'LEC';
+    const tag = (match[2] || '').toUpperCase();
+    const kind = (tag === 'L' || tag === 'LAB') ? 'LAB' : (tag === 'PS' || tag === 'PR' || tag === 'REC' || tag === 'DIS') ? 'PS' : 'LEC';
     return { base: match[1].trim(), kind, sectionNo: match[3] };
   }
 
