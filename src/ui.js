@@ -634,21 +634,20 @@
       });
     }
 
-    // PDF preset: fetch directly from Işık University website.
+    // PDF preset: fetch from same origin (e-campus-8.pdf is bundled alongside index.html).
     const presetPdf = $('preset-pdf');
     if (presetPdf) {
-      const PDF_URL = 'https://www.isikun.edu.tr/sites/default/files/2026-09/e-campus-8.pdf';
       presetPdf.addEventListener('click', async () => {
         presetPdf.disabled = true;
         presetPdf.querySelector('span').textContent = 'İndiriliyor…';
         try {
-          const res = await fetch(PDF_URL);
-          if (!res.ok) throw new Error('PDF alınamadı: ' + res.status);
+          const res = await fetch('e-campus-8.pdf');
+          if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
           const buf = await res.arrayBuffer();
           await loadBytes(new Uint8Array(buf), 'e-campus-8.pdf', true);
         } catch (err) {
           showError(
-            'e-Campus PDF indirilemedi: ' + (err.message || String(err)) +
+            'e-Campus PDF açılamadı: ' + (err.message || String(err)) +
             '. PDF\'i manuel olarak indirip buraya bırakabilirsiniz.'
           );
           presetPdf.querySelector('span').textContent = 'e-Campus PDF Programını kullan';
