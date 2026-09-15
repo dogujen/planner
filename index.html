@@ -804,7 +804,46 @@
   }
   .ccr-add:hover { background: var(--accent); color: #fff; transform: scale(1.1); }
   .ccr-add.ccr-add-active { background: var(--accent); color: #fff; }
+  .ccr-add.ccr-add-multi {
+    width: auto;
+    padding: 0 8px;
+    font-size: 11px;
+    height: 26px;
+    border-radius: var(--radius-full);
+  }
   .ccr-no-schedule { color: var(--muted); font-size: 14px; width: 28px; text-align: center; flex: 0 0 auto; }
+
+  /* CCR Option Picker Sub-Modal */
+  .ccr-opt-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    margin-bottom: 8px;
+    gap: 12px;
+  }
+  .ccr-opt-row.ccr-selected {
+    background: rgba(79, 70, 229, 0.12);
+    border-color: var(--accent);
+  }
+  .ccr-opt-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+  }
+  .ccr-opt-code {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .ccr-opt-title {
+    font-size: 12px;
+    color: var(--muted);
+  }
 
   @media (max-width: 768px) {
     main { padding: 16px 12px 60px; }
@@ -975,11 +1014,22 @@
   </div>
 </div>
 
-<script src="src/xlsx-reader.js?v=8"></script>
-<script src="src/course-parser.js?v=8"></script>
-<script src="src/scoring.js?v=8"></script>
-<script src="src/solver.js?v=8"></script>
-<script src="src/pdf-reader.js?v=8"></script>
-<script src="src/ui.js?v=8"></script>
+<!-- CCR Options Sub-Modal -->
+<div id="ccr-opt-modal" class="modal-overlay hidden" style="z-index: 110;">
+  <div class="modal-card ccr-modal-card" style="max-width: 540px;">
+    <div class="modal-header">
+      <h3 id="ccr-opt-title">Seçmeli Ders Opsiyonları</h3>
+      <button id="ccr-opt-modal-close" type="button" class="modal-close-btn">&times;</button>
+    </div>
+    <div id="ccr-opt-body" class="ccr-body" style="max-height: 60vh; padding: 16px 24px; overflow-y: auto;"></div>
+  </div>
+</div>
+
+<script src="src/xlsx-reader.js?v=9"></script>
+<script src="src/course-parser.js?v=9"></script>
+<script src="src/scoring.js?v=9"></script>
+<script src="src/solver.js?v=9"></script>
+<script src="src/pdf-reader.js?v=9"></script>
+<script src="src/ui.js?v=9"></script>
 </body>
 </html>

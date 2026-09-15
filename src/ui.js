@@ -225,13 +225,14 @@
       if (state.user.loggedIn && !isCurriculumCourse(course.base)) {
         return false;
       }
-      if (!query) return true;
       const allInst = [
         ...(course.groups.LEC || []),
         ...(course.groups.LAB || []),
         ...(course.groups.PS  || []),
       ].map((s) => s.instructor).join(' ');
-      const hay = fold(course.base + ' ' + course.title + ' ' + allInst);
+      const aktsVal = course.akts != null && course.akts > 0 ? course.akts : (course.credit > 0 ? course.credit : null);
+      const aktsText = aktsVal != null ? `${aktsVal} akts ${aktsVal}akts ${aktsVal} ects ${aktsVal}ects ${aktsVal} kredi ${aktsVal}kredi ${aktsVal} cr` : '';
+      const hay = fold(course.base + ' ' + course.title + ' ' + allInst + ' ' + aktsText);
       return hay.includes(query);
     });
 
@@ -1117,8 +1118,79 @@
   }
 
   // ---------------------------------------------------------------------------
-  // CCR (Curriculum Course Requirements) popup
+  // CCR (Curriculum Course Requirements) popup & Option Selector
   // ---------------------------------------------------------------------------
+  function getAvailableOptionsForSlot(code) {
+    const offeredCourses = state.user.offeredCourses || {};
+    const normSlot = normCode(code);
+    const optionCodes = new Set();
+
+    // Check offeredCourses[code] and offeredCourses[normSlot]
+    const offeredList = offeredCourses[code] || offeredCourses[normSlot] || [];
+    if (Array.isArray(offeredList)) {
+      for (const item of offeredList) {
+        if (item && item.code) optionCodes.add(normCode(item.code));
+      }
+    }
+
+    // Check all equivalent variants of code
+    const variants = getEquivalentCodes(code);
+    for (const v of variants) {
+      optionCodes.add(normCode(v));
+      const list = offeredCourses[v] || offeredCourses[normCode(v)];
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (item && item.code) optionCodes.add(normCode(item.code));
+        }
+      }
+    }
+
+    // Find all loaded courses in state.courses matching any of optionCodes
+    const matches = state.courses.filter((c) => {
+      const cVariants = getEquivalentCodes(c.base);
+      return cVariants.some((v) => optionCodes.has(normCode(v)));
+    });
+
+    return matches;
+  }
+
+  function renderCcrOptionsModal(slotCode) {
+    const optModal = $('ccr-opt-modal');
+    const optTitle = $('ccr-opt-title');
+    const optBody  = $('ccr-opt-body');
+    if (!optModal || !optBody) return;
+
+    const options = getAvailableOptionsForSlot(slotCode);
+    if (optTitle) optTitle.textContent = slotCode + ' — Ders Seçenekleri';
+
+    if (options.length === 0) {
+      optBody.innerHTML = '<p class="sub" style="padding:12px">Açılan ders programında uygun opsiyon bulunamadı.</p>';
+      optModal.classList.remove('hidden');
+      return;
+    }
+
+    let html = '';
+    for (const course of options) {
+      const isSel = state.selected.has(course.base);
+      const rowClass = 'ccr-opt-row' + (isSel ? ' ccr-selected' : '');
+      const btnClass = 'ccr-add' + (isSel ? ' ccr-add-active' : '');
+      const btnIcon  = isSel ? '✓' : '＋';
+
+      html += '<div class="' + rowClass + '">';
+      html += '  <div class="ccr-opt-info">';
+      html += '    <div class="ccr-opt-code">' + escapeHtml(course.base) + ' <span class="cr">· ' + escapeHtml(aktsOrCredit(course)) + '</span></div>';
+      if (course.title) {
+        html += '    <div class="ccr-opt-title">' + escapeHtml(course.title) + '</div>';
+      }
+      html += '  </div>';
+      html += '  <button class="' + btnClass + ' ccr-opt-add" data-base="' + escapeHtml(course.base) + '" data-slotcode="' + escapeHtml(slotCode) + '">' + btnIcon + '</button>';
+      html += '</div>';
+    }
+
+    optBody.innerHTML = html;
+    optModal.classList.remove('hidden');
+  }
+
   function renderCcrModal() {
     const modal = $('ccr-modal');
     const body = $('ccr-body');
@@ -1146,13 +1218,9 @@
         const isPassed = gradeUp !== '' && !FAILED_GRADES.includes(gradeUp) && !RETAKEABLE_GRADES.includes(gradeUp);
         const isRetakeable = RETAKEABLE_GRADES.includes(gradeUp);
 
-        // Try to find a matching course in the loaded schedule
-        const matchedCourse = state.courses.find((c) => {
-          const variants = getEquivalentCodes(c.base);
-          return variants.some((v) => normCode(v) === normCode(code));
-        });
-
-        const isSelected = matchedCourse && state.selected.has(matchedCourse.base);
+        const options = getAvailableOptionsForSlot(code);
+        const selectedInSlot = options.filter((c) => state.selected.has(c.base));
+        const isSelected = selectedInSlot.length > 0;
         const rowClass = 'ccr-row' + (isPassed ? ' ccr-passed' : '') + (isSelected ? ' ccr-selected' : '');
 
         html += '<div class="' + rowClass + '">';
@@ -1163,19 +1231,29 @@
         html += '<span class="ccr-akts">' + escapeHtml(String(akts)) + ' AKTS</span>';
         if (isPassed) {
           // fully passed — no + button
-        } else if (matchedCourse) {
-          // not passed (or retakeable DD/DC) — show grade badge (if any) + + button
+        } else if (options.length === 1) {
+          const matchedCourse = options[0];
+          const isSingleSelected = state.selected.has(matchedCourse.base);
           if (isRetakeable && grade) {
-            html += '<span class="ccr-grade ccr-grade-retake" title="Tekrar al\u0131nabilir">' + escapeHtml(grade) + '</span>';
+            html += '<span class="ccr-grade ccr-grade-retake" title="Tekrar alınabilir">' + escapeHtml(grade) + '</span>';
+          }
+          if (isSingleSelected) {
+            html += '<button class="ccr-add ccr-add-active" data-base="' + escapeHtml(matchedCourse.base) + '" title="Listeden çıkar">✓</button>';
+          } else {
+            html += '<button class="ccr-add" data-base="' + escapeHtml(matchedCourse.base) + '" title="Listeye ekle">＋</button>';
+          }
+        } else if (options.length > 1) {
+          if (isRetakeable && grade) {
+            html += '<span class="ccr-grade ccr-grade-retake" title="Tekrar alınabilir">' + escapeHtml(grade) + '</span>';
           }
           if (isSelected) {
-            html += '<button class="ccr-add ccr-add-active" data-base="' + escapeHtml(matchedCourse.base) + '" title="Listeden \u00e7\u0131kar">\u2713</button>';
+            html += '<button class="ccr-add ccr-add-active ccr-add-multi" data-slotcode="' + escapeHtml(code) + '" title="Ders seçeneklerini gör / değiştir">✓ (' + selectedInSlot.length + ')</button>';
           } else {
-            html += '<button class="ccr-add" data-base="' + escapeHtml(matchedCourse.base) + '" title="Listeye ekle">\uff0b</button>';
+            html += '<button class="ccr-add ccr-add-multi" data-slotcode="' + escapeHtml(code) + '" title="Ders seçeneklerini gör (' + options.length + ' Opsiyon)">＋ (' + options.length + ')</button>';
           }
         } else {
           // not in schedule
-          html += '<span class="ccr-no-schedule" title="Bu ders program dosyas\u0131nda bulunamad\u0131">\u2014</span>';
+          html += '<span class="ccr-no-schedule" title="Bu ders program dosyasında bulunamadı">—</span>';
         }
         html += '</div>';
       }
@@ -1197,6 +1275,9 @@
     const ccrModal = $('ccr-modal');
     const ccrClose = $('ccr-modal-close');
     const ccrBtn = $('ccr-btn');
+    const ccrOptModal = $('ccr-opt-modal');
+    const ccrOptClose = $('ccr-opt-modal-close');
+    const ccrOptBody = $('ccr-opt-body');
 
     if (loginBtn && modal) {
       loginBtn.addEventListener('click', () => {
@@ -1222,15 +1303,32 @@
         ccrModal.classList.add('hidden');
       });
     }
+    if (ccrOptClose && ccrOptModal) {
+      ccrOptClose.addEventListener('click', () => {
+        ccrOptModal.classList.add('hidden');
+      });
+    }
     if (ccrModal) {
       ccrModal.addEventListener('click', (e) => {
         if (e.target === ccrModal) ccrModal.classList.add('hidden');
       });
     }
-    // CCR + / ✓ toggle — single persistent listener on the body element
+    if (ccrOptModal) {
+      ccrOptModal.addEventListener('click', (e) => {
+        if (e.target === ccrOptModal) ccrOptModal.classList.add('hidden');
+      });
+    }
+    // CCR + / ✓ toggle & multi-option picker listener
     const ccrBody = $('ccr-body');
     if (ccrBody) {
       ccrBody.addEventListener('click', (e) => {
+        const multiBtn = e.target.closest('.ccr-add-multi');
+        if (multiBtn) {
+          const slotCode = multiBtn.dataset.slotcode;
+          if (slotCode) renderCcrOptionsModal(slotCode);
+          return;
+        }
+
         const btn = e.target.closest('.ccr-add');
         if (!btn) return;
         const base = btn.dataset.base;
@@ -1250,6 +1348,29 @@
         renderTray();
         renderChips();
         renderSummary();
+      });
+    }
+
+    // Option Picker item toggle listener inside ccr-opt-body
+    if (ccrOptBody) {
+      ccrOptBody.addEventListener('click', (e) => {
+        const btn = e.target.closest('.ccr-opt-add');
+        if (!btn) return;
+        const base = btn.dataset.base;
+        const slotCode = btn.dataset.slotcode;
+        if (!base) return;
+
+        if (state.selected.has(base)) {
+          state.selected.delete(base);
+        } else {
+          state.selected.add(base);
+        }
+        persist();
+        renderTray();
+        renderChips();
+        renderSummary();
+        if (slotCode) renderCcrOptionsModal(slotCode);
+        renderCcrModal();
       });
     }
     if (modal) {
