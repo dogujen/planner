@@ -341,6 +341,11 @@
       if (section.akts && !course.akts) {
         course.akts = section.akts;
       }
+      section.originalAkts = section.akts;
+    }
+
+    for (const c of byBase.values()) {
+      c.originalAkts = c.akts;
     }
 
     const courses = [...byBase.values()].sort((a, b) => a.base.localeCompare(b.base, 'tr'));
