@@ -80,15 +80,24 @@
   }
 
   async function loadFile(file) {
-    await loadBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+    const name = file.name;
+    const isPdf = name.toLowerCase().endsWith('.pdf');
+    if (isPdf) {
+      await loadBytes(new Uint8Array(await file.arrayBuffer()), name, true);
+    } else {
+      await loadBytes(new Uint8Array(await file.arrayBuffer()), name, false);
+    }
   }
 
   // The single load path. The file picker and the built-in schedule button both
   // arrive here, so neither can drift away from the other's behaviour.
-  async function loadBytes(bytes, name) {
+  // isPdf flag selects the reader; defaults to XLSX.
+  async function loadBytes(bytes, name, isPdf = false) {
     resetForNewFile();
     try {
-      const { rows } = await XlsxReader.readWorkbook(bytes);
+      const { rows } = isPdf
+        ? await PdfReader.readPdf(bytes)
+        : await XlsxReader.readWorkbook(bytes);
       const cols = CourseParser.detectColumns(rows);
       const built = CourseParser.buildCourses(rows, cols);
       state.courses = built.courses;
@@ -615,12 +624,36 @@
           const res = await fetch('e-Campus.xlsx');
           if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
           const buf = await res.arrayBuffer();
-          await loadBytes(new Uint8Array(buf), 'e-Campus.xlsx');
+          await loadBytes(new Uint8Array(buf), 'e-Campus.xlsx', false);
         } catch (err) {
           showError('Hazır ders programı açılamadı: ' + (err.message || String(err)));
-          preset.querySelector('span').textContent = 'e-Campus Ders Programını kullan';
+          preset.querySelector('span').textContent = 'e-Campus XLSX Programını kullan';
         } finally {
           preset.disabled = false;
+        }
+      });
+    }
+
+    // PDF preset: fetch directly from Işık University website.
+    const presetPdf = $('preset-pdf');
+    if (presetPdf) {
+      const PDF_URL = 'https://www.isikun.edu.tr/sites/default/files/2026-09/e-campus-8.pdf';
+      presetPdf.addEventListener('click', async () => {
+        presetPdf.disabled = true;
+        presetPdf.querySelector('span').textContent = 'İndiriliyor…';
+        try {
+          const res = await fetch(PDF_URL);
+          if (!res.ok) throw new Error('PDF alınamadı: ' + res.status);
+          const buf = await res.arrayBuffer();
+          await loadBytes(new Uint8Array(buf), 'e-campus-8.pdf', true);
+        } catch (err) {
+          showError(
+            'e-Campus PDF indirilemedi: ' + (err.message || String(err)) +
+            '. PDF\'i manuel olarak indirip buraya bırakabilirsiniz.'
+          );
+          presetPdf.querySelector('span').textContent = 'e-Campus PDF Programını kullan';
+        } finally {
+          presetPdf.disabled = false;
         }
       });
     }
@@ -653,7 +686,7 @@
       e.preventDefault();
       drop.classList.remove('over');
       if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
-      else showError('Bir dosya bırakmalısınız (ör. .xlsx) — sürüklenen içerik dosya değil.');
+      else showError('Bir dosya bırakmalısınız (ör. .xlsx veya .pdf) — sürüklenen içerik dosya değil.');
     });
     $('search').addEventListener('input', renderChips);
     $('gno').addEventListener('change', () => {

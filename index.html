@@ -169,6 +169,9 @@
   body.dark-theme #preset { background: #064e3b; color: #a7f3d0; border-color: #059669; }
   body.dark-theme #preset:hover { background: #047857; }
   body.dark-theme #preset svg { stroke: #34d399; }
+  body.dark-theme #preset-pdf { background: #1e3a5f; color: #bfdbfe; border-color: #2563eb; }
+  body.dark-theme #preset-pdf:hover { background: #1d4ed8; }
+  body.dark-theme #preset-pdf svg { stroke: #60a5fa; }
   body.dark-theme .err { background: #450a0a; border-color: #991b1b; color: #fca5a5; }
   body.dark-theme .badge { background: rgba(245,158,11,0.2); color: #fbbf24; border-color: #78350f; }
   body.dark-theme .cal td.clash {
@@ -192,13 +195,21 @@
   body.dark-theme .alt-details summary:hover { color: #ffffff; }
 
   #preset { display: flex; align-items: center; justify-content: center; gap: 10px;
-            width: 100%; padding: 18px; margin-bottom: 16px; cursor: pointer;
-            font: inherit; font-weight: 600; color: #14532d;
-            background: #f0fdf4; border: 2px solid #86efac; border-radius: 10px; }
+             width: 100%; padding: 18px; margin-bottom: 10px; cursor: pointer;
+             font: inherit; font-weight: 600; color: #14532d;
+             background: #f0fdf4; border: 2px solid #86efac; border-radius: 10px; }
   #preset:hover { background: #dcfce7; border-color: #4ade80; }
   #preset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #preset svg { width: 22px; height: 22px; flex: none; stroke: #16a34a; stroke-width: 1.8;
                 fill: none; stroke-linecap: round; }
+  #preset-pdf { display: flex; align-items: center; justify-content: center; gap: 10px;
+               width: 100%; padding: 18px; margin-bottom: 16px; cursor: pointer;
+               font: inherit; font-weight: 600; color: #1e3a8a;
+               background: #eff6ff; border: 2px solid #93c5fd; border-radius: 10px; }
+  #preset-pdf:hover { background: #dbeafe; border-color: #60a5fa; }
+  #preset-pdf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #preset-pdf svg { width: 22px; height: 22px; flex: none; stroke: #2563eb; stroke-width: 1.8;
+                   fill: none; stroke-linecap: round; stroke-linejoin: round; }
   .tag { display: inline-block; padding: 1px 7px; border-radius: 5px;
          font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
          font-size: 12px; color: #1c2024; }
@@ -217,7 +228,7 @@
   <header class="top-header">
     <div>
       <h1>Ders Programı İhtimalleri</h1>
-      <p class="sub">Ders programı XLSX dosyanı yükle, derslerini seç, en iyi haftalık programları gör.
+      <p class="sub">Ders programı XLSX veya PDF dosyanı yükle, derslerini seç, en iyi haftalık programları gör.
         Dosya bilgisayarından çıkmaz.</p>
     </div>
     <button id="theme-toggle" type="button" class="theme-btn" title="Karanlık/Aydınlık Tema Değiştir" aria-label="Tema Değiştir">
@@ -227,7 +238,7 @@
 
   <div id="drop">
     <div id="dropinner">
-      <strong>XLSX dosyasını buraya sürükle</strong><br>
+      <strong>XLSX veya PDF dosyasını buraya sürükle</strong><br>
       <span class="sub">veya tıklayarak seç</span>
     </div>
   </div>
@@ -242,11 +253,20 @@
       <line x1="9" y1="9" x2="9" y2="20"></line>
       <line x1="15" y1="9" x2="15" y2="20"></line>
     </svg>
-    <span>e-Campus Ders Programını kullan</span>
+    <span>e-Campus XLSX Programını kullan</span>
+  </button>
+  <button id="preset-pdf" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="3" y="2" width="14" height="20" rx="2"></rect>
+      <polyline points="13 2 13 8 19 8"></polyline>
+      <line x1="7" y1="12" x2="15" y2="12"></line>
+      <line x1="7" y1="16" x2="13" y2="16"></line>
+    </svg>
+    <span>e-Campus PDF Programını kullan</span>
   </button>
   <!-- Outside #drop on purpose: a hidden input inside its own click handler's
        element re-triggers that handler when opened programmatically. -->
-  <input id="file" type="file" accept=".xlsx" hidden>
+  <input id="file" type="file" accept=".xlsx,.pdf" hidden>
 
   <div id="error" class="card err hidden"></div>
   <div id="warnings" class="card warn hidden"></div>
@@ -308,11 +328,12 @@
 </main>
 <div id="tip" role="tooltip"></div>
 
-<script src="src/xlsx-reader.js?v=4"></script>
-<script src="src/course-parser.js?v=4"></script>
-<script src="src/scoring.js?v=4"></script>
-<script src="src/solver.js?v=4"></script>
+<script src="src/xlsx-reader.js?v=5"></script>
+<script src="src/course-parser.js?v=5"></script>
+<script src="src/scoring.js?v=5"></script>
+<script src="src/solver.js?v=5"></script>
+<script src="src/pdf-reader.js?v=5"></script>
 <!-- preset-schedule.js removed: e-Campus.xlsx is loaded via fetch() -->
-<script src="src/ui.js?v=4"></script>
+<script src="src/ui.js?v=5"></script>
 </body>
 </html>
