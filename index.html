@@ -569,7 +569,7 @@
   .sub { color: var(--muted); }
   .sub.note { font-size: 12px; margin: 8px 0 16px; }
 
-  /* Login & User Session Styles */
+  /* Login, Github & User Session Styles */
   .header-actions { display: flex; align-items: center; gap: 10px; flex: none; }
   .login-btn {
     border: 1.5px solid var(--accent);
@@ -597,6 +597,31 @@
     box-shadow: 0 4px 14px var(--accent-glow);
   }
 
+  .github-btn {
+    border: 1.5px solid var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 7px 18px;
+    border-radius: var(--radius-full);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    box-shadow: var(--shadow-sm);
+  }
+  .github-btn-main { font-size: 13px; font-weight: 700; line-height: 1.2; }
+  .github-btn:hover {
+    background: var(--accent);
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px var(--accent-glow);
+  }
+  
   .user-pill {
     display: inline-flex;
     align-items: center;
