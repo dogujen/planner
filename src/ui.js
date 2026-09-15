@@ -686,7 +686,7 @@
       });
     }
 
-    // PDF preset: fetch from same origin (e-campus-8.pdf is bundled alongside index.html).
+    // PDF preset: fetch dynamically from API endpoint
     const presetPdf = $('preset-pdf');
     if (presetPdf) {
       presetPdf.addEventListener('click', async () => {
@@ -695,10 +695,10 @@
         const originalText = spanEl.textContent;
         spanEl.textContent = 'İndiriliyor…';
         try {
-          const res = await fetch('e-campus-8.pdf');
+          const res = await fetch('https://ecampusdb.dogukervan.me/?action=pdf');
           if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
           const buf = await res.arrayBuffer();
-          await loadBytes(new Uint8Array(buf), 'e-campus-8.pdf', true);
+          await loadBytes(new Uint8Array(buf), 'e-campus.pdf', true);
           // Reset text after successful load
           spanEl.textContent = originalText;
         } catch (err) {
