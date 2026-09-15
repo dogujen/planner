@@ -44,64 +44,102 @@
 
   // Satırı parçalara ayırır. PDF'te her bölüm boşlukla ayrılmış;
   // ancak başlık birden fazla kelimeden oluşabileceği için regex kullanılır.
-  const CODE_RE  = /^[A-ZÀ-ÿĞİÖŞÜÇ][A-ZÀ-ÿĞİÖŞÜÇ\d]+\.[\d.]+$/;
   const SLOT_RE  = /^(Th|St|Su|M|T|W|F)\d{1,2},?$/;
   const EMAIL_RE = /^[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z.]{2,}$/i;
 
-  function parseLine(line) {
-    const t = line.trim().split(/\s+/);
-    if (t.length < 10) return null;
+  function parseLine(lineStr) {
+    lineStr = lineStr.trim();
+    if (!lineStr || /ders\s*kodu/i.test(lineStr) || /course\s*code/i.test(lineStr)) return null;
 
-    // 0: e-posta
-    if (!EMAIL_RE.test(t[0])) return null;
-    const email = t[0];
-
-    // 1: ders kodu
-    const codeIdx = 1;
-    if (!CODE_RE.test(t[codeIdx])) return null;
-    const code = t[codeIdx];
-
-    // STAFF konumunu bul
-    const staffIdx = t.indexOf('STAFF', codeIdx + 2);
-    if (staffIdx < 0) return null;
-
-    // Başlığın sonundaki "(N)" kredi parantezini bul (başlıktan sonra gelir)
-    let creditParenIdx = -1;
-    for (let i = codeIdx + 1; i < staffIdx; i++) {
-      if (/^\(\d+\)$/.test(t[i])) { creditParenIdx = i; break; }
+    // 1. E-posta (opsiyonel)
+    let email = '';
+    let rest = lineStr;
+    const firstWord = rest.split(/\s+/)[0] || '';
+    if (EMAIL_RE.test(firstWord)) {
+      email = firstWord;
+      rest = rest.slice(email.length).trim();
     }
-    if (creditParenIdx < 0) return null;
 
-    const title = t.slice(codeIdx + 1, creditParenIdx + 1).join(' ');
-    const localCredit = t[creditParenIdx + 1] || '';
-    const akts        = t[creditParenIdx + 2] || '';
-    const quotaLeft   = t[creditParenIdx + 3] || '';
-    // t[creditParenIdx + 4] === '/'
-    const quotaTotal  = t[creditParenIdx + 5] || '';
-    const campus      = t[creditParenIdx + 6] || '';
+    // 2. Ders Kodu (örn. AHİZ1111.1, ARCH1102-L.1, BMED2411-PS.1, HUSS1003 .1)
+    const codeMatch = rest.match(/^([A-ZÀ-ÿĞİÖŞÜÇ][A-ZÀ-ÿĞİÖŞÜÇ\d\.\-]+\s*\.\s*\d+(?:\.\d+)?)/i);
+    if (!codeMatch) return null;
 
-    // Sınıf(lar) ve öğretim üyesi: kampüsten STAFF'e kadar
-    // Sınıf kodları [A-Z]\d+ formatındadır; sonrasında instructor gelir.
-    const afterCampus = t.slice(creditParenIdx + 7, staffIdx);
-    let roomEnd = 0;
-    while (roomEnd < afterCampus.length &&
-           /^[A-Z]\d/.test(afterCampus[roomEnd].replace(/,$/, ''))) {
-      roomEnd++;
+    const rawCode = codeMatch[1];
+    const code = rawCode.replace(/\s+/g, ''); // "HUSS1003 .1" -> "HUSS1003.1"
+    rest = rest.slice(rawCode.length).trim();
+
+    // 3. Kota bulma: "X / Y" veya "-7 / 40" formatında
+    const quotaMatch = rest.match(/(-?\d+)\s*\/\s*(\d+)/);
+    if (!quotaMatch) return null;
+
+    const quotaLeft = quotaMatch[1];
+    const quotaTotal = quotaMatch[2];
+    const quotaStart = quotaMatch.index;
+    const quotaEnd = quotaStart + quotaMatch[0].length;
+
+    // Kotadan önceki metin: Başlık + Yerel Kredi + AKTS Kredisi
+    const beforeQuota = rest.slice(0, quotaStart).trim();
+    const afterQuota = rest.slice(quotaEnd).trim();
+
+    // Kotadan hemen önceki 2 sayıyı (Yerel Kredi, AKTS) çek
+    let title = beforeQuota;
+    let localCredit = '0';
+    let akts = '0';
+
+    const creditsMatch = beforeQuota.match(/\s+(\d+)\s+(\d+)$/);
+    if (creditsMatch) {
+      localCredit = creditsMatch[1];
+      akts = creditsMatch[2];
+      title = beforeQuota.slice(0, creditsMatch.index).trim();
+    } else {
+      const bTokens = beforeQuota.split(/\s+/);
+      if (bTokens.length >= 2) {
+        akts = bTokens.pop();
+        localCredit = bTokens.pop();
+        title = bTokens.join(' ');
+      }
     }
-    const rooms      = afterCampus.slice(0, roomEnd).map(r => r.replace(/,$/, '')).join(', ');
-    const instructor = afterCampus.slice(roomEnd).join(' ');
 
-    // Saatler: STAFF'ten sonra gelen SLOT_RE tokenları
-    let slotEnd = staffIdx + 1;
-    while (slotEnd < t.length && SLOT_RE.test(t[slotEnd])) slotEnd++;
-    const slots = t.slice(staffIdx + 1, slotEnd).map(s => s.replace(/,$/, '')).join(' ');
+    // 4. Kotadan sonraki metin: Kampüs + Sınıflar + Eğitmen + STAFF + Ders Saatleri + Fakülte + ...
+    const tAfter = afterQuota.split(/\s+/);
+    const staffIndices = [];
+    tAfter.forEach((tok, i) => { if (tok === 'STAFF') staffIndices.push(i); });
+    if (staffIndices.length === 0) return null;
 
-    // Kalan tokenlar: fakülte + sınıf_sayısı + YES/NO
-    const trailing = t.slice(slotEnd);
-    const yesNo    = trailing[trailing.length - 1]; // YES | NO
-    const classHrs = trailing[trailing.length - 2]; // sayı
-    // Fakülte = kalan
-    const faculty = trailing.slice(0, trailing.length - 2).join(' ');
+    const campus = tAfter[0] || '';
+    const middle = tAfter.slice(1, staffIndices[0]);
+
+    // Sınıflar ve Eğitmen adını ayır
+    const roomTokens = [];
+    const instTokens = [];
+    for (const tok of middle) {
+      const tokClean = tok.replace(/,$/, '');
+      if (/^[A-Z]\d/i.test(tokClean) || /^(Online|null|OFFICE)$/i.test(tokClean)) {
+        roomTokens.push(tokClean);
+      } else {
+        instTokens.push(tok);
+      }
+    }
+    const rooms = roomTokens.join(', ');
+    const instructor = instTokens.join(' ');
+    const instParts = instructor.split(/\s+/).filter(Boolean);
+    const instFirstName = instParts.slice(0, -1).join(' ');
+    const instLastName = instParts.slice(-1)[0] || '';
+
+    // Ders Saatleri (STAFF sonrasındaki slot'lar)
+    const lastStaff = staffIndices[staffIndices.length - 1];
+    const slotTokens = [];
+    let idx = lastStaff + 1;
+    while (idx < tAfter.length && SLOT_RE.test(tAfter[idx])) {
+      slotTokens.push(tAfter[idx].replace(/,$/, ''));
+      idx++;
+    }
+    const slots = slotTokens.join(' ');
+
+    const trailing = tAfter.slice(idx);
+    const yesNo = trailing.length ? trailing[trailing.length - 1] : '';
+    const classHrs = trailing.length >= 2 ? trailing[trailing.length - 2] : '';
+    const faculty = trailing.length >= 2 ? trailing.slice(0, -2).join(' ') : '';
 
     return {
       A: email,
@@ -112,8 +150,8 @@
       F: `${quotaLeft} / ${quotaTotal}`,
       G: campus,
       H: rooms,
-      I: instructor.split(' ').slice(0, -1).join(' '),    // ad (son kelime soyad)
-      J: instructor.split(' ').slice(-1)[0] || '',        // soyad
+      I: instFirstName,
+      J: instLastName,
       K: 'STAFF',
       L: slots,
       M: faculty,
