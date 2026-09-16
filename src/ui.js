@@ -26,6 +26,10 @@
       allowedCourses: new Set(), // Set<courseBaseOrNorm>
       donemler: {},        // raw donemler from API
       offeredCourses: {}, // raw offered_courses from API
+      // Raw `schedule` array from the e-Campus API (login response).
+      schedule: null,
+      // {email, password} kept in memory only — never persisted to localStorage.
+      credentials: null,
     }
   };
 
@@ -114,26 +118,82 @@
       const { rows } = isPdf
         ? await PdfReader.readPdf(bytes)
         : await XlsxReader.readWorkbook(bytes);
-      const cols = CourseParser.detectColumns(rows);
-      const built = CourseParser.buildCourses(rows, cols);
-      state.courses = built.courses;
-      state.warnings = built.warnings;
-      state.akts = Boolean(cols.akts);
-      state.prefs = Scoring.defaultPrefs();
-      applyStudentAktsOverwrites();
-      restore();
-      loadFromUrl();   // apply ?alınanders= param if present
-      renderFileSummary(name);
-      $('app').classList.remove('hidden');
-      renderWarnings();
-      renderChips();
-      renderTray();
-      applyPrefsToControls();
-      renderSummary();
-      renderFreeDays();
+      loadRows(rows, name);
     } catch (err) {
       showError(err.message || String(err));
     }
+  }
+
+  // Wire-format-agnostic: rows already in {ColumnLetter: string} shape, as
+  // produced by the Xlsx/PDF readers and ScheduleReader.rowsFromSchedule().
+  function loadRows(rows, name) {
+    resetForNewFile();
+    const cols = CourseParser.detectColumns(rows);
+    const built = CourseParser.buildCourses(rows, cols);
+    state.courses = built.courses;
+    state.warnings = built.warnings;
+    state.akts = Boolean(cols.akts);
+    state.prefs = Scoring.defaultPrefs();
+    applyStudentAktsOverwrites();
+    restore();
+    loadFromUrl();   // apply ?alınanders= param if present
+    renderFileSummary(name);
+    $('app').classList.remove('hidden');
+    renderWarnings();
+    renderChips();
+    renderTray();
+    applyPrefsToControls();
+    renderSummary();
+    renderFreeDays();
+  }
+
+  // Fetches the schedule from the e-Campus API with the session's credentials.
+  function fetchAndLoadSchedule() {
+    const creds = state.user.credentials;
+    const pending = state.user.schedule;
+    // A restored session has no credentials; the login response's schedule was
+    // not persisted, so without a fresh login there is nothing to load.
+    if (!creds && (!pending || pending.length === 0)) {
+      showError('Ders programını çekmek için e-Campus ile giriş yapmalısın.');
+      const modal = $('login-modal');
+      if (modal) modal.classList.remove('hidden');
+      return Promise.resolve();
+    }
+
+    const load = (schedule) => {
+      const { rows } = ScheduleReader.rowsFromSchedule(schedule || []);
+      loadRows(rows, 'e-Campus Ders Programı');
+    };
+
+    if (!creds) {
+      try {
+        load(pending);
+      } catch (err) {
+        showError('e-Campus ders programı yüklenemedi: ' + (err.message || String(err)));
+      }
+      return Promise.resolve();
+    }
+
+    const url = 'https://ecampusdb.dogukervan.me/?' + new URLSearchParams({
+      action: 'schedule',
+      ECampusUsername: creds.email,
+      ECampusPassword: creds.password,
+      ECampusLanguageId: '2',
+    });
+    return fetch(url)
+      .catch((err) => { throw new Error('Ağ hatası: ' + (err.message || String(err))); })
+      .then((res) => {
+        if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
+        return res.json();
+      })
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        state.user.schedule = data.schedule || null;
+        load(data.schedule || []);
+      })
+      .catch((err) => {
+        showError('e-Campus ders programı alınamadı: ' + (err.message || String(err)));
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -728,23 +788,26 @@
     const drop = $('drop');
     drop.addEventListener('click', () => $('file').click());
 
-    // Built-in e-Campus.xlsx preset: fetch from the same origin (works under
-    // http:// but NOT under file://; for file:// the user must open the file).
+    // e-Campus preset: pulls the schedule from the API with the logged-in
+    // user's credentials. Only reachable after login; clicking while logged
+    // out returns the user to the login modal.
     const preset = $('preset');
     if (preset) {
       preset.addEventListener('click', async () => {
+        if (!state.user.loggedIn) {
+          const modal = $('login-modal');
+          if (modal) modal.classList.remove('hidden');
+          return;
+        }
+        const spanEl = preset.querySelector('span');
+        const originalText = spanEl.textContent;
         preset.disabled = true;
-        preset.querySelector('span').textContent = 'Yükleniyor…';
+        spanEl.textContent = 'Çekiliyor…';
         try {
-          const res = await fetch('e-Campus.xlsx');
-          if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
-          const buf = await res.arrayBuffer();
-          await loadBytes(new Uint8Array(buf), 'e-Campus.xlsx', false);
-        } catch (err) {
-          showError('Hazır ders programı açılamadı: ' + (err.message || String(err)));
-          preset.querySelector('span').textContent = 'e-Campus XLSX Programını kullan';
+          await fetchAndLoadSchedule();
         } finally {
           preset.disabled = false;
+          spanEl.textContent = originalText;
         }
       });
     }
@@ -1032,8 +1095,10 @@
     return [];
   }
 
-  function handleLoginSuccess(data) {
+  function handleLoginSuccess(data, credentials) {
     state.user.loggedIn = true;
+    state.user.credentials = credentials || null;
+    state.user.schedule = Array.isArray(data.schedule) ? data.schedule : state.user.schedule;
     const studentInfo = data.student_info || data;
     state.user.gpa = studentInfo.gpa != null ? studentInfo.gpa : null;
     state.user.totalAkts = studentInfo.total_akts != null ? studentInfo.total_akts : null;
@@ -1187,6 +1252,10 @@
     state.user.passedCourses.clear();
     state.user.studentAktsMap.clear();
     state.user.allowedCourses.clear();
+    state.user.donemler = {};
+    state.user.offeredCourses = {};
+    state.user.schedule = null;
+    state.user.credentials = null;
 
     try {
       localStorage.removeItem('planner_ecampus_user');
@@ -1514,7 +1583,7 @@
           if (data.error) {
             throw new Error(data.error);
           }
-          handleLoginSuccess(data);
+          handleLoginSuccess(data, { email, password: pass });
           if (modal) modal.classList.add('hidden');
           $('login-pass').value = '';
         } catch (err) {
