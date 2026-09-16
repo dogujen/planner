@@ -436,7 +436,7 @@
 
   const KIND_LABEL = { LEC: 'Ders', LAB: 'Lab', PS: 'Problem Seansı' };
 
-  function buildTooltipContent(course) {
+  function buildTooltipContent(course, filterQuery = '') {
     const preferred = getPreferred(course.base);
     const locked    = getLocked(course.base);
     const blocked   = getBlocked(course.base);
@@ -444,31 +444,40 @@
     const dayNames = { M: 'Pzt', T: 'Sal', W: 'Çar', Th: 'Per', F: 'Cum', St: 'Cmt', Su: 'Paz' };
     const slotStr = (s) => s.slots.map((sl) => (dayNames[CourseParser.DAYS[sl.day]] || CourseParser.DAYS[sl.day]) + sl.hour).join(' ');
 
-    // Group by kind so LEC/PS/LAB sections are displayed separately.
     const groups = [
-      { kind: 'LEC', sections: course.groups.LEC },
-      { kind: 'LAB', sections: course.groups.LAB },
-      { kind: 'PS',  sections: course.groups.PS  },
+      { kind: 'LEC', sections: course.groups.LEC || [] },
+      { kind: 'LAB', sections: course.groups.LAB || [] },
+      { kind: 'PS',  sections: course.groups.PS  || [] },
     ].filter((g) => g.sections.length > 0);
 
+    const totalSections = groups.reduce((acc, g) => acc + g.sections.length, 0);
+    const cleanQuery = (filterQuery || '').trim().toLowerCase();
+
     let sectionRows = '';
+    let matchCount = 0;
+
     for (const { kind, sections } of groups) {
-      if (groups.length > 1) {
-        sectionRows += '<div class="tip-kind-label">' + escapeHtml(KIND_LABEL[kind] || kind) + '</div>';
-      }
+      let groupRows = '';
       for (const s of sections) {
+        const slots = slotStr(s);
+        const searchTarget = (s.sectionNo + ' ' + (s.instructor || '') + ' ' + slots).toLowerCase();
+        if (cleanQuery && !searchTarget.includes(cleanQuery)) {
+          continue;
+        }
+        matchCount++;
         const isPref    = preferred.has(s.code);
         const isLocked  = locked.has(s.code);
         const isBlocked = blocked.has(s.code);
         const star      = isPref   ? '★' : '☆';
         const lockIcon  = isLocked ? '🔒' : '🔓';
         const blockIcon = '🚫';
-        const slots = slotStr(s);
+
         const rowClass = 'tip-row' +
           (isPref ? ' tip-pref' : '') +
           (isLocked ? ' tip-locked' : '') +
           (isBlocked ? ' tip-blocked' : '');
-        sectionRows +=
+
+        groupRows +=
           '<div class="' + rowClass + '" data-base="' + escapeHtml(course.base) +
           '" data-code="' + escapeHtml(s.code) + '">' +
           '<span class="tip-star" data-action="star" title="Bu şubeyi öne çıkar">' + star + '</span>' +
@@ -479,6 +488,17 @@
           (slots ? '<span class="tip-slot"> ' + escapeHtml(slots) + '</span>' : '') +
           '</div>';
       }
+
+      if (groupRows) {
+        if (groups.length > 1) {
+          sectionRows += '<div class="tip-kind-label">' + escapeHtml(KIND_LABEL[kind] || kind) + '</div>';
+        }
+        sectionRows += groupRows;
+      }
+    }
+
+    if (cleanQuery && matchCount === 0) {
+      sectionRows = '<div style="font-size:11px; color:#94a3b8; padding:8px; text-align:center;">Eşleşen şube bulunamadı</div>';
     }
 
     const first = (course.groups.LEC[0] || course.groups.LAB[0] || course.groups.PS[0]);
@@ -494,15 +514,24 @@
       hint = '<div class="tip-hint tip-hint-blocked">🚫 Engelleme aktif — engellenen şubeler atlanıyor</div>';
     }
 
+    let searchHtml = '';
+    if (totalSections > 5) {
+      searchHtml = '<input type="text" class="tip-search" placeholder="Hoca veya section ara..." value="' + escapeHtml(filterQuery) + '">';
+      if (cleanQuery) {
+        searchHtml += '<div class="tip-count">' + matchCount + ' / ' + totalSections + ' şube gösteriliyor</div>';
+      }
+    }
+
     return '<b>' + escapeHtml(course.title || course.base) + '</b>' +
       (first && first.campus ? '<span class="tip-sub"> · ' + escapeHtml(first.campus) + '</span>' : '') +
       (quota ? '<span class="tip-sub"> · ' + escapeHtml(quota) + '</span>' : '') +
       hint +
-      '<div class="tip-sections">' + sectionRows + '</div>';
+      searchHtml +
+      '<div class="tip-sections-wrap"><div class="tip-sections">' + sectionRows + '</div></div>';
   }
 
-  function tooltipFor(course) {
-    return buildTooltipContent(course);
+  function tooltipFor(course, filterQuery = '') {
+    return buildTooltipContent(course, filterQuery);
   }
 
   function wireTooltip() {
@@ -513,11 +542,24 @@
     function positionTip(elem) {
       const box = elem.getBoundingClientRect();
       const tipBox = tip.getBoundingClientRect();
-      tip.style.left = Math.max(0, Math.min(box.left, window.innerWidth - 340)) + 'px';
-      const fitsBelow = box.bottom + 8 + tipBox.height <= window.innerHeight;
-      tip.style.top = fitsBelow
-        ? (box.bottom + 8) + 'px'
-        : Math.max(0, box.top - 8 - tipBox.height) + 'px';
+      const availableWidth = window.innerWidth;
+      const availableHeight = window.innerHeight;
+
+      const left = Math.max(8, Math.min(box.left, availableWidth - tipBox.width - 12));
+      tip.style.left = left + 'px';
+
+      const fitsBelow = box.bottom + 8 + tipBox.height <= availableHeight;
+      if (fitsBelow) {
+        tip.style.top = (box.bottom + 8) + 'px';
+      } else {
+        const topAbove = box.top - 8 - tipBox.height;
+        if (topAbove >= 8) {
+          tip.style.top = topAbove + 'px';
+        } else {
+          const topPos = Math.max(8, Math.min(box.bottom + 8, availableHeight - tipBox.height - 8));
+          tip.style.top = topPos + 'px';
+        }
+      }
     }
 
     function showTip(elem) {
@@ -528,24 +570,24 @@
       activeChip = elem;
       tip.innerHTML = tooltipFor(course);
       tip.style.display = 'block';
-      // Position after render so dimensions are known.
       positionTip(elem);
     }
 
     function hideTip() {
+      if (tip.contains(document.activeElement)) return;
       tip.style.display = 'none';
       activeChip = null;
     }
 
     function scheduleHide() {
-      hideTimer = setTimeout(hideTip, 120);
+      if (tip.contains(document.activeElement)) return;
+      hideTimer = setTimeout(hideTip, 150);
     }
 
     function cancelHide() {
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     }
 
-    // Bind hover and focus to both chip list (#chips) and selected tray (#tray)
     const containers = [$('chips'), $('tray')].filter(Boolean);
     for (const container of containers) {
       for (const name of ['mouseover', 'focusin']) {
@@ -561,11 +603,28 @@
       }
     }
 
-    // Keep tip visible when mouse enters it.
     tip.addEventListener('mouseenter', cancelHide);
     tip.addEventListener('mouseleave', scheduleHide);
 
-    // Handle section-preference, lock and block clicks inside the tooltip.
+    tip.addEventListener('input', (event) => {
+      if (event.target.classList.contains('tip-search')) {
+        const query = event.target.value.trim().toLowerCase();
+        const rows = tip.querySelectorAll('.tip-row');
+        let visible = 0;
+        rows.forEach((row) => {
+          const text = row.textContent.toLowerCase();
+          const match = !query || text.includes(query);
+          row.style.display = match ? 'flex' : 'none';
+          if (match) visible++;
+        });
+        const countEl = tip.querySelector('.tip-count');
+        if (countEl) {
+          countEl.textContent = query ? (visible + ' / ' + rows.length + ' şube gösteriliyor') : '';
+        }
+        if (activeChip) positionTip(activeChip);
+      }
+    });
+
     tip.addEventListener('click', (event) => {
       const row = event.target.closest('.tip-row');
       if (!row) return;
@@ -576,15 +635,19 @@
       } else if (action === 'block') {
         toggleBlock(base, code);
       } else {
-        // Click anywhere else on row (or star icon) = toggle preference star.
         togglePreference(base, code);
       }
-      // Re-render tray to sync badges on selected items
       renderTray();
-      // Re-render tooltip content in place (keep visible).
       const course = state.courses.find((c) => c.base === base);
       if (course) {
-        tip.innerHTML = tooltipFor(course);
+        const searchInput = tip.querySelector('.tip-search');
+        const filterVal = searchInput ? searchInput.value : '';
+        tip.innerHTML = tooltipFor(course, filterVal);
+        const newSearch = tip.querySelector('.tip-search');
+        if (newSearch && filterVal) {
+          newSearch.focus();
+          newSearch.setSelectionRange(filterVal.length, filterVal.length);
+        }
         if (activeChip) positionTip(activeChip);
       }
     });
@@ -955,6 +1018,20 @@
     }
   }
 
+  function getOfferedListForSlot(code, offeredCourses) {
+    if (!offeredCourses) return [];
+    if (offeredCourses[code]) return offeredCourses[code];
+    const norm = normCode(code);
+    if (offeredCourses[norm]) return offeredCourses[norm];
+    const variants = getEquivalentCodes(code);
+    for (const v of variants) {
+      if (offeredCourses[v]) return offeredCourses[v];
+      const normV = normCode(v);
+      if (offeredCourses[normV]) return offeredCourses[normV];
+    }
+    return [];
+  }
+
   function handleLoginSuccess(data) {
     state.user.loggedIn = true;
     const studentInfo = data.student_info || data;
@@ -969,26 +1046,7 @@
     state.user.donemler = donemler;
     state.user.offeredCourses = offeredCourses;
 
-    // 1. Collect all curriculum course codes + their equivalents
-    for (const semName in donemler) {
-      const semCourses = donemler[semName];
-      for (const code in semCourses) {
-        addAllowedCode(code.trim());
-      }
-    }
-
-    // 2. Collect all offered / equivalent / elective course codes + their equivalents
-    for (const key in offeredCourses) {
-      addAllowedCode(key.trim());
-      const list = offeredCourses[key];
-      if (Array.isArray(list)) {
-        for (const item of list) {
-          if (item && item.code) addAllowedCode(item.code.trim());
-        }
-      }
-    }
-
-    // 3. Process ECTS overwrites and passed course grades
+    // 1. Process ECTS overwrites and passed course grades first
     for (const semName in donemler) {
       const semCourses = donemler[semName];
       for (const code in semCourses) {
@@ -996,7 +1054,7 @@
         if (Array.isArray(info)) {
           const curriculumKey = code.trim();
           const normCurr = normCode(curriculumKey);
-          const offeredList = offeredCourses[curriculumKey] || [];
+          const offeredList = getOfferedListForSlot(curriculumKey, offeredCourses);
           const isPool = isElectivePool(curriculumKey, offeredList);
 
           // Build set of course codes mapped to this curriculum slot
@@ -1039,6 +1097,55 @@
                 state.user.passedCourses.set(c, cleanGrade);
               }
             }
+          }
+        }
+      }
+    }
+
+    // 2. Collect allowed courses:
+    // Mandatory courses + candidate courses of UNPASSED elective slots.
+    // If an elective slot (e.g. -GE-I, -GE-II, -AE-I) is ALREADY passed,
+    // we DO NOT add its candidate courses to allowedCourses.
+    for (const semName in donemler) {
+      const semCourses = donemler[semName];
+      for (const code in semCourses) {
+        const curriculumKey = code.trim();
+        const normCurr = normCode(curriculumKey);
+        const offeredList = getOfferedListForSlot(curriculumKey, offeredCourses);
+        const isPool = isElectivePool(curriculumKey, offeredList);
+
+        const grade = state.user.passedCourses.get(curriculumKey) || state.user.passedCourses.get(normCurr);
+        const isSlotPassed = grade && !RETAKEABLE_GRADES.includes(grade.toUpperCase());
+
+        if (isPool) {
+          // If the elective slot is UNPASSED (open), allow its candidate courses.
+          if (!isSlotPassed) {
+            addAllowedCode(curriculumKey);
+            if (Array.isArray(offeredList)) {
+              for (const item of offeredList) {
+                if (item && item.code) addAllowedCode(item.code.trim());
+              }
+            }
+          }
+        } else {
+          // Direct mandatory course
+          addAllowedCode(curriculumKey);
+        }
+      }
+    }
+
+    // Also handle any offeredCourses keys whose pool is not passed
+    for (const key in offeredCourses) {
+      const normKey = normCode(key);
+      const grade = state.user.passedCourses.get(key) || state.user.passedCourses.get(normKey);
+      const isSlotPassed = grade && !RETAKEABLE_GRADES.includes(grade.toUpperCase());
+
+      if (!isSlotPassed) {
+        addAllowedCode(key.trim());
+        const list = offeredCourses[key];
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (item && item.code) addAllowedCode(item.code.trim());
           }
         }
       }
@@ -1097,10 +1204,12 @@
       const raw = localStorage.getItem('planner_ecampus_user');
       if (raw) {
         const parsed = JSON.parse(raw);
-        // If this is an old session without allowedCourses, discard it so the
-        // user gets prompted to log in again with the full new data structure.
         if (!parsed.allowedCourses || parsed.allowedCourses.length === 0) {
           localStorage.removeItem('planner_ecampus_user');
+          return;
+        }
+        if (parsed.donemler && parsed.offeredCourses) {
+          handleLoginSuccess(parsed);
           return;
         }
         state.user.loggedIn = true;

@@ -530,7 +530,8 @@
   #tip {
     position: fixed;
     z-index: 50;
-    max-width: 340px;
+    max-width: 360px;
+    min-width: 260px;
     padding: 12px 14px;
     border-radius: var(--radius-md);
     background: #0f172a;
@@ -543,6 +544,30 @@
     box-shadow: var(--shadow-lg);
     border: 1px solid #334155;
   }
+  .tip-sections-wrap {
+    max-height: 260px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+    margin-top: 4px;
+  }
+  .tip-sections-wrap::-webkit-scrollbar { width: 4px; }
+  .tip-sections-wrap::-webkit-scrollbar-track { background: transparent; }
+  .tip-sections-wrap::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  .tip-search {
+    width: 100%;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #f8fafc;
+    font-size: 11px;
+    padding: 4px 8px;
+    margin-bottom: 6px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .tip-search:focus { border-color: var(--accent); background: rgba(255,255,255,0.1); }
+  .tip-count { font-size: 10px; color: #64748b; margin-bottom: 4px; }
   #tip b { display: block; margin-bottom: 4px; font-size: 13px; }
   .tip-hint { font-size: 10px; color: #9ca3af; margin: 4px 0 6px; }
   .tip-hint-locked { color: #fbbf24; font-weight: 600; }
