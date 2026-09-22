@@ -1715,11 +1715,17 @@
         for (let s = 1; s < span; s++) skip[h + s] = 1;
 
         if (list.length > 1) {
-          // Clash cell: show codes
-          const codes = list.map((s) => escapeHtml(s.code)).join(' / ');
+          // Clash cell: show codes AND both classrooms so the student can see
+          // where to run between the two rooms.
+          const items = list.map((s) =>
+            '<div class="clash-item">' +
+            '<div class="cal-code">' + escapeHtml(s.code) + '</div>' +
+            (s.classroom ? '<div class="cal-room">' + escapeHtml(s.classroom) + '</div>' : '') +
+            '</div>');
           html += '<td class="busy clash" colspan="' + span + '" title="' +
-            escapeHtml('Çakışma: ' + list.map((s) => s.code).join(' / ')) + '">' +
-            codes + '</td>';
+            escapeHtml('Çakışma: ' + list.map((s) =>
+              s.code + (s.classroom ? ' (' + s.classroom + ')' : '')).join(' / ')) + '">' +
+            items.join('') + '</td>';
         } else {
           const s = list[0];
           // Title: strip trailing credit in parens, e.g. "CALC (3)" → "CALC"
@@ -1785,6 +1791,23 @@
     html += '<p class="sub">Madde 18/2 seçeneğini açmak da yardımcı olabilir: ' +
       'en fazla iki dersin birer saati çakışabilir (danışman onayı gerekir).</p>';
     return html + '</div>';
+  }
+
+  function downloadIcs(entry) {
+    try {
+      const ics = Ics.buildIcs(entry.sections);
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ders-programi.ics';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      showError('ICS dışa aktarılamadı: ' + (err.message || String(err)));
+    }
   }
 
   function renderResults(output, chosen) {
@@ -1871,10 +1894,13 @@
           '</p></details>'
         : '';
       card.innerHTML = '<header><h3>#' + (index + 1) + '</h3>' +
-        '<span class="sub">puan ' + entry.score + '/100</span>' + badge + '</header>' +
+        '<span class="sub">puan ' + entry.score + '/100</span>' + badge +
+        '<button type="button" class="ics-btn" title="Bu programı takviminize eklemek için ICS indir">📅 ICS</button></header>' +
         calendarFor(entry) +
         '<p class="sub">' + breakdown + '</p>' + alternates;
       box.appendChild(card);
+      const icsBtn = card.querySelector('.ics-btn');
+      if (icsBtn) icsBtn.addEventListener('click', () => downloadIcs(entry));
     });
   }
 

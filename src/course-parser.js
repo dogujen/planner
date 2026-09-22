@@ -101,6 +101,7 @@
     { field: 'campus', re: /campus/i },
     { field: 'akts',   re: /ects/i },
     { field: 'hours',  re: /course\s*hour/i },
+    { field: 'classroom', re: /classroom|sınıf|sinif/i },
     // Instructor columns are gathered by suffix match below.
   ];
 
@@ -181,6 +182,7 @@
         campus: fromHeaders.campus || null,
         instructorParts: fromHeaders.instructorParts,
         akts: fromHeaders.akts || null,
+        classroom: fromHeaders.classroom || null,
       };
     }
 
@@ -263,6 +265,7 @@
     return {
       code, title, slots, quota: quota || null, hours,
       campus: campus || null, instructorParts, akts,
+      classroom: null,
     };
   }
 
@@ -315,6 +318,7 @@
         hours: cols.hours ? Number(row[cols.hours] || 0) : slotInfo.slots.length,
         akts: cols.akts ? Number(row[cols.akts] || 0) : null,
         campus: cols.campus ? (row[cols.campus] || '') : '',
+        classroom: cols.classroom ? (row[cols.classroom] || '') : '',
         instructor: (cols.instructorParts || [])
           .map((letter) => (row[letter] || '').trim()).filter(Boolean).join(' '),
         quota: cols.quota ? parseQuota(row[cols.quota]) : null,

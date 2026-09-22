@@ -525,6 +525,29 @@
     color: #dc2626;
     border-color: #f87171;
   }
+  .cal td.clash .clash-item { margin-bottom: 4px; }
+  .cal td.clash .clash-item:last-child { margin-bottom: 0; }
+  .cal td.clash .cal-code { justify-content: flex-start; }
+  .cal-room { font-size: 9px; font-weight: 700; opacity: 0.85; margin-top: 1px; text-align: left; }
+
+  button.ics-btn {
+    margin-left: auto;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--card);
+    color: var(--ink-sub);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  button.ics-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
 
   /* Interactive tooltip */
   #tip {
@@ -1075,12 +1098,13 @@
   </div>
 </div>
 
-<script src="src/xlsx-reader.js?v=11"></script>
-<script src="src/course-parser.js?v=11"></script>
-<script src="src/scoring.js?v=11"></script>
-<script src="src/solver.js?v=11"></script>
-<script src="src/pdf-reader.js?v=11"></script>
-<script src="src/schedule-reader.js?v=11"></script>
-<script src="src/ui.js?v=12"></script>
+<script src="src/xlsx-reader.js?v=13"></script>
+<script src="src/course-parser.js?v=13"></script>
+<script src="src/scoring.js?v=13"></script>
+<script src="src/solver.js?v=13"></script>
+<script src="src/pdf-reader.js?v=13"></script>
+<script src="src/schedule-reader.js?v=13"></script>
+<script src="src/ics.js?v=13"></script>
+<script src="src/ui.js?v=13"></script>
 </body>
 </html>
