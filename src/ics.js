@@ -46,11 +46,20 @@
 
   const TRAILING_CREDIT = /\s*\(\d+\)\s*$/;
 
+  // RRULE: her hafta tekrar eder. options.until ('YYYY-MM-DD') verilirse bir
+  // bitiş tarihi eklenir; verilmezse takvim uygulaması sonsuza dek tekrarlar.
+  function weeklyRrule(until) {
+    if (!until) return 'FREQ=WEEKLY';
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(until).trim());
+    return 'FREQ=WEEKLY;UNTIL=' + (m ? m[1] + m[2] + m[3] : until);
+  }
+
   // sections: Section[] (slot.day, CourseParser.DAYS indeksi: M=0 … Su=6).
   function buildIcs(sections, options) {
     const opts = Object.assign({ start: new Date() }, options || {});
     const start = weekStart(opts.start);
     const stamp = utcStamp(new Date());
+    const rrule = weeklyRrule(opts.until);
 
     let out = 'BEGIN:VCALENDAR\r\n' +
       'VERSION:2.0\r\n' +
@@ -77,6 +86,7 @@
           'DTSTAMP:' + stamp + '\r\n' +
           'DTSTART:' + fmtDate(date) + 'T' + fmtClock(startMin) + '\r\n' +
           'DTEND:' + fmtDate(date) + 'T' + fmtClock(endMin) + '\r\n' +
+          'RRULE:' + rrule + '\r\n' +
           'SUMMARY:' + summary + '\r\n' +
           (location ? 'LOCATION:' + location + '\r\n' : '') +
           'END:VEVENT\r\n';
