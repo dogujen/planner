@@ -46,12 +46,26 @@
 
   const TRAILING_CREDIT = /\s*\(\d+\)\s*$/;
 
-  // RRULE: her hafta tekrar eder. options.until ('YYYY-MM-DD') verilirse bir
-  // bitiş tarihi eklenir; verilmezse takvim uygulaması sonsuza dek tekrarlar.
+  // Türkiye'de 2016'dan beri yaz saati yok; sabit UTC+3 için tek STANDARD
+  // yeterli. Saat dilimli DTSTART/DTEND, takvim uygulamalarının tekrarlı
+  // etkinlikleri isteksiz kabul ettiği "floating" zamandan çok daha uyumlu.
+  const TZID = 'Europe/Istanbul';
+  const VTIMEZONE =
+    'BEGIN:VTIMEZONE\r\n' +
+    'TZID:' + TZID + '\r\n' +
+    'BEGIN:STANDARD\r\n' +
+    'DTSTART:19700101T000000\r\n' +
+    'TZOFFSETFROM:+0300\r\n' +
+    'TZOFFSETTO:+0300\r\n' +
+    'END:STANDARD\r\n' +
+    'END:VTIMEZONE\r\n';
+
+// RRULE: her hafta tekrar eder. options.until ('YYYY-MM-DD') verilirse UTC
+// bitiş anı eklenir; verilmezse takvim uygulaması sonsuza dek tekrarlar.
   function weeklyRrule(until) {
     if (!until) return 'FREQ=WEEKLY';
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(until).trim());
-    return 'FREQ=WEEKLY;UNTIL=' + (m ? m[1] + m[2] + m[3] : until);
+    return 'FREQ=WEEKLY;UNTIL=' + (m ? m[1] + m[2] + m[3] + 'T235959Z' : until);
   }
 
   // sections: Section[] (slot.day, CourseParser.DAYS indeksi: M=0 … Su=6).
@@ -66,7 +80,8 @@
       'PRODID:-//Ders Planlay\u0131c\u0131//TR\r\n' +
       'CALSCALE:GREGORIAN\r\n' +
       'METHOD:PUBLISH\r\n' +
-      'X-WR-CALNAME:Ders Program\u0131\r\n';
+      'X-WR-CALNAME:Ders Program\u0131\r\n' +
+      VTIMEZONE;
 
     for (const section of sections) {
       for (const slot of section.slots) {
@@ -84,8 +99,8 @@
         out += 'BEGIN:VEVENT\r\n' +
           'UID:' + uid + '@ders-planlayici\r\n' +
           'DTSTAMP:' + stamp + '\r\n' +
-          'DTSTART:' + fmtDate(date) + 'T' + fmtClock(startMin) + '\r\n' +
-          'DTEND:' + fmtDate(date) + 'T' + fmtClock(endMin) + '\r\n' +
+          'DTSTART;TZID=' + TZID + ':' + fmtDate(date) + 'T' + fmtClock(startMin) + '\r\n' +
+          'DTEND;TZID=' + TZID + ':' + fmtDate(date) + 'T' + fmtClock(endMin) + '\r\n' +
           'RRULE:' + rrule + '\r\n' +
           'SUMMARY:' + summary + '\r\n' +
           (location ? 'LOCATION:' + location + '\r\n' : '') +
