@@ -1012,15 +1012,9 @@
       results.add('CORE' + group + '0' + lastDigit);
       results.add('CORE' + group + '1' + lastDigit);
     }
-
-    // General rule: toggle any single 0<->1 digit in the number.
-    for (let i = 0; i < numStr.length; i++) {
-      const c = numStr[i];
-      if (c === '0' || c === '1') {
-        const toggled = numStr.slice(0, i) + (c === '0' ? '1' : '0') + numStr.slice(i + 1);
-        results.add(prefix + toggled);
-      }
-    }
+    // NOTE: tek basamakta 0<->1 toggle kuralı YOK — MATH1111'in MATH1001 ile
+    // eşleşmesi, MATH1000 gibi alakasız kodlara da sızıp "geçti" rozeti
+    // gösterilmesine yol açıyordu. Sadece bilinçli desenler eşleşir.
 
     return Array.from(results);
   }
@@ -1037,30 +1031,40 @@
     return false;
   }
 
-  function isPassedCourse(base) {
-    if (!state.user.loggedIn) return false;
-    const variants = getEquivalentCodes(base);
-    for (const v of variants) {
-      const norm = normCode(v);
-      const grade = state.user.passedCourses.get(norm) || state.user.passedCourses.get(v);
-      if (grade) {
-        // DD/DC are in passedCourses for badge display, but NOT locked — student can retake
-        if (RETAKEABLE_GRADES.includes(grade.toUpperCase())) return false;
-        return true;
+  // Not sorgusu yalnızca API verisiyle yapılır:
+  // 1) Doğrudan kayıt (ders kodu / normalize edilmiş hali passedCourses'ta).
+  // 2) Müfredat eşleşmesi: bu şube, offered_courses'ta hangi slotun parçasıysa
+  //    O slotun notu ("yeni kod" bilgisini kestirmek yok — API zaten biliyor).
+  function gradeForCode(code) {
+    if (!state.user.loggedIn) return null;
+    const norm = normCode(code);
+    const direct = state.user.passedCourses.get(code) || state.user.passedCourses.get(norm);
+    if (direct) return direct;
+    const offered = state.user.offeredCourses || {};
+    for (const key of Object.keys(offered)) {
+      const list = offered[key];
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        if (item && item.code && normCode(item.code) === norm) {
+          return state.user.passedCourses.get(key) ||
+                 state.user.passedCourses.get(normCode(key)) || null;
+        }
       }
     }
-    return false;
+    return null;
+  }
+
+  function isPassedCourse(base) {
+    if (!state.user.loggedIn) return false;
+    const grade = gradeForCode(base);
+    if (!grade) return false;
+    // DD/DC geçmiş görünür ama tekrar alınabilir — kilitli değil
+    return !RETAKEABLE_GRADES.includes(grade.toUpperCase());
   }
 
   function getPassedGrade(base) {
     if (!state.user.loggedIn) return null;
-    const variants = getEquivalentCodes(base);
-    for (const v of variants) {
-      const norm = normCode(v);
-      if (state.user.passedCourses.has(norm)) return state.user.passedCourses.get(norm);
-      if (state.user.passedCourses.has(v)) return state.user.passedCourses.get(v);
-    }
-    return null;
+    return gradeForCode(base);
   }
 
   function getStudentAkts(base) {
