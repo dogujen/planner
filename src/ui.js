@@ -1,6 +1,8 @@
 'use strict';
 (function () {
   const $ = (id) => document.getElementById(id);
+  // wireTooltip içinde atanır; renderChips vb. tooltip'i yerinde tazelemek için kullanır.
+  let refreshTipForBase = null;
   // Grades that mean the student must/can retake the course (not fully passed)
   const FAILED_GRADES     = ['FF', 'FD', 'F', 'NA'];
   const RETAKEABLE_GRADES = ['DD', 'DC']; // conditional pass, can retake to improve GPA
@@ -353,6 +355,8 @@
           persist();
           renderTray();
           renderSummary();
+          // Chip listesi yeniden çizildi, tooltip'i aynı derste açık tut.
+          if (refreshTipForBase) refreshTipForBase(course.base);
         });
       }
 
@@ -732,19 +736,42 @@
         togglePreference(base, code);
       }
       renderTray();
-      const course = state.courses.find((c) => c.base === base);
-      if (course) {
-        const searchInput = tip.querySelector('.tip-search');
-        const filterVal = searchInput ? searchInput.value : '';
-        tip.innerHTML = tooltipFor(course, filterVal);
-        const newSearch = tip.querySelector('.tip-search');
-        if (newSearch && filterVal) {
-          newSearch.focus();
-          newSearch.setSelectionRange(filterVal.length, filterVal.length);
-        }
-        if (activeChip) positionTip(activeChip);
-      }
+      // Tooltip'i aynı yerde, içeriği güncel halde tut — tekrar tıklama yok.
+      cancelHide();
+      refreshTip(base);
     });
+
+    // Tooltip içeriğini yerinde tazele. Aktif çapa (chip/tray) yeniden çizimle
+    // kaybolmuşsa konumu sabit tutar, yoksa yeni çipaya tutunur.
+    refreshTipForBase = function (base) {
+      if (tip.style.display === 'none' || !activeChip) return;
+      cancelHide();
+      refreshTip(base);
+    };
+
+    function refreshTip(base) {
+      const course = state.courses.find((c) => c.base === base);
+      const tipRect = tip.getBoundingClientRect();
+      const visible = tip.style.display !== 'none';
+      const keepPos = activeChip && !activeChip.isConnected;
+      if (!course) return;
+      const searchInput = tip.querySelector('.tip-search');
+      const filterVal = searchInput ? searchInput.value : '';
+      tip.innerHTML = tooltipFor(course, filterVal);
+      const newSearch = tip.querySelector('.tip-search');
+      if (newSearch && filterVal) {
+        newSearch.focus();
+        newSearch.setSelectionRange(filterVal.length, filterVal.length);
+      }
+      if (keepPos || (activeChip && !activeChip.isConnected)) {
+        tip.style.left = tipRect.left + 'px';
+        tip.style.top = tipRect.top + 'px';
+      } else if (activeChip) {
+        positionTip(activeChip);
+      } else {
+        tip.style.display = visible ? 'block' : 'none';
+      }
+    }
   }
 
   function renderSummary() {
