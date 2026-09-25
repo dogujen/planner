@@ -68,23 +68,6 @@
     state.blockedSections = new Map();
   }
 
-  // Spec §9.1: the drop zone is replaced by a compact summary, not removed —
-  // removing it would make loading a second file impossible without a reload.
-  function togglePreset(show) {
-    const button = $('preset');
-    if (button) button.classList.toggle('hidden', !show);
-  }
-
-  function renderFileSummary(name) {
-    togglePreset(false);
-    $('drop').classList.add('loaded');
-    $('dropinner').innerHTML =
-      '<strong>' + escapeHtml(name) + '</strong>' +
-      '<span class="sub">' + state.courses.length + ' ders · ' +
-      state.warnings.length + ' uyarı</span>' +
-      '<button id="rechoose" type="button">Başka dosya seç</button>';
-  }
-
   function applyPrefsToControls() {
     $('fdw').value = state.prefs.freeDayWeight;
     $('fdwOut').textContent = state.prefs.freeDayWeight;
@@ -100,34 +83,20 @@
     if ([...gno.options].some((option) => option.value === state.ui.gno)) gno.value = state.ui.gno;
   }
 
-  async function loadFile(file) {
-    const name = file.name;
-    const isPdf = name.toLowerCase().endsWith('.pdf');
-    if (isPdf) {
-      await loadBytes(new Uint8Array(await file.arrayBuffer()), name, true);
-    } else {
-      await loadBytes(new Uint8Array(await file.arrayBuffer()), name, false);
-    }
-  }
-
-  // The single load path. The file picker and the built-in schedule button both
-  // arrive here, so neither can drift away from the other's behaviour.
-  // isPdf flag selects the reader; defaults to XLSX.
-  async function loadBytes(bytes, name, isPdf = false) {
+  // Parses e-Campus PDF bytes into the same rows shape used by the JSON reader.
+  async function loadPdfBytes(bytes) {
     resetForNewFile();
     try {
-      const { rows } = isPdf
-        ? await PdfReader.readPdf(bytes)
-        : await XlsxReader.readWorkbook(bytes);
-      loadRows(rows, name);
+      const { rows } = await PdfReader.readPdf(bytes);
+      loadRows(rows);
     } catch (err) {
       showError(err.message || String(err));
     }
   }
 
   // Wire-format-agnostic: rows already in {ColumnLetter: string} shape, as
-  // produced by the Xlsx/PDF readers and ScheduleReader.rowsFromSchedule().
-  function loadRows(rows, name) {
+  // produced by the PDF reader and ScheduleReader.rowsFromSchedule().
+  function loadRows(rows) {
     resetForNewFile();
     const cols = CourseParser.detectColumns(rows);
     const built = CourseParser.buildCourses(rows, cols);
@@ -138,8 +107,12 @@
     applyStudentAktsOverwrites();
     restore();
     loadFromUrl();   // apply ?alınanders= param if present
-    renderFileSummary(name);
     $('app').classList.remove('hidden');
+    // Ders programı yüklendi: sidebar'daki kilitli menü maddelerini aç.
+    document.querySelectorAll('#sidebar .side-item.side-disabled').forEach((item) => {
+      item.classList.remove('side-disabled');
+      item.removeAttribute('title');
+    });
     renderWarnings();
     renderChips();
     renderTray();
@@ -172,7 +145,7 @@
 
     const load = (schedule) => {
       const { rows } = ScheduleReader.rowsFromSchedule(schedule || []);
-      loadRows(rows, 'e-Campus Ders Programı');
+      loadRows(rows);
     };
 
     if (!creds) {
@@ -586,6 +559,17 @@
           (isLocked ? ' tip-locked' : '') +
           (isBlocked ? ' tip-blocked' : '');
 
+        // Quota badge per section: positive, or full/negative (negative means
+        // a special quota only for exceptional students — no seat for us).
+        let quotaTag = '';
+        const q = s.quota;
+        if (q && q.left != null && q.total != null) {
+          const full = q.left <= 0;
+          quotaTag = '<span class="tip-quota' + (full ? ' tip-quota-full' : '') + '" title="' +
+            escapeHtml(full ? 'Kota dolu' : 'Kalan kontenjan') + '">' +
+            escapeHtml(q.left + '/' + q.total) + (full ? ' DOLU' : '') + '</span>';
+        }
+
         groupRows +=
           '<div class="' + rowClass + '" data-base="' + escapeHtml(course.base) +
           '" data-code="' + escapeHtml(s.code) + '">' +
@@ -595,6 +579,7 @@
           '<span class="tip-code">' + escapeHtml(s.sectionNo) + '</span>' +
           (s.instructor ? '<span class="tip-inst"> ' + escapeHtml(s.instructor) + '</span>' : '') +
           (slots ? '<span class="tip-slot"> ' + escapeHtml(slots) + '</span>' : '') +
+          quotaTag +
           '</div>';
       }
 
@@ -835,9 +820,6 @@
   }
 
   function wire() {
-    const drop = $('drop');
-    drop.addEventListener('click', () => $('file').click());
-
     // e-Campus preset: pulls the schedule from the API with the logged-in
     // user's credentials. Only reachable after login; clicking while logged
     // out returns the user to the login modal.
@@ -874,17 +856,13 @@
           const res = await fetch('https://ecampusdb.dogukervan.me/?action=pdf');
           if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
           const buf = await res.arrayBuffer();
-          await loadBytes(new Uint8Array(buf), 'e-campus.pdf', true);
-          // Reset text after successful load
-          spanEl.textContent = originalText;
+          await loadPdfBytes(new Uint8Array(buf));
         } catch (err) {
-          showError(
-            'e-Campus PDF açılamadı: ' + (err.message || String(err)) +
-            '. PDF\'i manuel olarak indirip buraya bırakabilirsiniz.'
-          );
+          showError('e-Campus PDF açılamadı: ' + (err.message || String(err)));
           spanEl.textContent = originalText;
         } finally {
           presetPdf.disabled = false;
+          spanEl.textContent = originalText;
         }
       });
     }
@@ -921,20 +899,6 @@
       });
     }
 
-    $('file').addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      // Clear it so picking the SAME file twice still fires a change event.
-      e.target.value = '';
-      if (file) loadFile(file);
-    });
-    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-    drop.addEventListener('drop', (e) => {
-      e.preventDefault();
-      drop.classList.remove('over');
-      if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
-      else showError('Bir dosya bırakmalısınız (ör. .xlsx veya .pdf) — sürüklenen içerik dosya değil.');
-    });
     $('search').addEventListener('input', renderChips);
     $('gno').addEventListener('change', () => {
       state.ui.gno = $('gno').value;
@@ -950,7 +914,6 @@
       persist();
     });
     wireTooltip();
-    initTheme();
     initUserLogin();
     $('fdw').addEventListener('input', () => { $('fdwOut').textContent = $('fdw').value; });
     $('cmp').addEventListener('input', () => { $('cmpOut').textContent = $('cmp').value; });
@@ -2084,33 +2047,6 @@
         (Date.now() - started) + ' ms';
       renderResults(output, chosen);
     }, 0);
-  }
-
-  function initTheme() {
-    const toggleBtn = $('theme-toggle');
-    const icon = $('theme-icon');
-    if (!toggleBtn || !icon) return;
-
-    const saved = localStorage.getItem('dpi.theme');
-    if (saved === 'dark') {
-      document.body.classList.add('dark-theme');
-      icon.textContent = '☀️';
-    } else {
-      document.body.classList.remove('dark-theme');
-      icon.textContent = '🌙';
-    }
-
-    toggleBtn.addEventListener('click', () => {
-      const isDark = document.body.classList.toggle('dark-theme');
-      icon.textContent = isDark ? '☀️' : '🌙';
-      try {
-        localStorage.setItem('dpi.theme', isDark ? 'dark' : 'light');
-      } catch (e) {}
-      // Re-run solver/results if courses are currently selected so colors update
-      if (state.selected && state.selected.size > 0 && $('results').children.length > 0) {
-        run();
-      }
-    });
   }
 
   wire();
