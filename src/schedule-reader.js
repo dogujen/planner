@@ -49,10 +49,16 @@
       const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : instructor;
       const className = trim(item.classroom);
       const classHours = String((slots.match(SLOT_TOKENS) || []).length);
+      // API kota sistemi: remaining_quota / main_quota → "4 / 37" F sütunu,
+      // buildCourses'ün parseQuota({left, total}) formatıyla birebir aynı.
+      const hasQuota = item.remaining_quota != null && item.main_quota != null;
+      const quota = hasQuota
+        ? String(item.remaining_quota) + ' / ' + String(item.main_quota)
+        : '';
 
       rows.push({
         A: '', B: rawCode, C: titleWithCredit(title, item.credit),
-        D: trim(item.credit), E: trim(item.akts), F: '',
+        D: trim(item.credit), E: trim(item.akts), F: quota,
         G: trim(item.campus), H: className,
         I: firstName, J: lastName, K: 'STAFF',
         L: slots, M: '', N: classHours, O: '',

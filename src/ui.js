@@ -8,7 +8,7 @@
   const state = {
     courses: [], warnings: [], selected: new Set(), prefs: null, akts: false,
     // Controls that are not scoring preferences but still worth remembering.
-    ui: { overlap: false, gno: '0' },
+    ui: { overlap: false, noQuota: false, gno: '0' },
     // Map<base, Set<code>>: user-preferred sections per course (key = full section code).
     preferredSections: new Map(),
     // Map<base, Set<code>>: user-locked sections — solver ONLY picks from these.
@@ -95,6 +95,7 @@
     $('maxgap').value = state.prefs.maxGap == null ? '' : state.prefs.maxGap;
     $('single').checked = state.prefs.avoidSingleCourseDays;
     $('overlap').checked = state.ui.overlap;
+    $('noquota').checked = state.ui.noQuota;
     const gno = $('gno');
     if ([...gno.options].some((option) => option.value === state.ui.gno)) gno.value = state.ui.gno;
   }
@@ -147,6 +148,15 @@
     renderFreeDays();
   }
 
+  function ecampusScheduleUrl(creds) {
+    return 'https://ecampusdb.dogukervan.me/?' + new URLSearchParams({
+      action: 'schedule',
+      ECampusUsername: creds.email,
+      ECampusPassword: creds.password,
+      ECampusLanguageId: '2',
+    });
+  }
+
   // Fetches the schedule from the e-Campus API with the session's credentials.
   function fetchAndLoadSchedule() {
     const creds = state.user.credentials;
@@ -174,13 +184,7 @@
       return Promise.resolve();
     }
 
-    const url = 'https://ecampusdb.dogukervan.me/?' + new URLSearchParams({
-      action: 'schedule',
-      ECampusUsername: creds.email,
-      ECampusPassword: creds.password,
-      ECampusLanguageId: '2',
-    });
-    return fetch(url)
+    return fetch(ecampusScheduleUrl(creds))
       .catch((err) => { throw new Error('Ağ hatası: ' + (err.message || String(err))); })
       .then((res) => {
         if (!res.ok) throw new Error('Dosya alınamadı: ' + res.status);
@@ -193,6 +197,51 @@
       })
       .catch((err) => {
         showError('e-Campus ders programı alınamadı: ' + (err.message || String(err)));
+      });
+  }
+
+  // Re-fetches quota data from the API and patches section.quota in place,
+  // without touching the user's selection or the rest of the loaded file.
+  function refreshQuotas() {
+    const creds = state.user.credentials;
+    if (!creds) {
+      showError('Kotaları güncellemek için e-Campus ile giriş yapmalısın.');
+      return Promise.resolve();
+    }
+    return fetch(ecampusScheduleUrl(creds))
+      .catch((err) => { throw new Error('Ağ hatası: ' + (err.message || String(err))); })
+      .then((res) => {
+        if (!res.ok) throw new Error('Kota verisi alınamadı: ' + res.status);
+        return res.json();
+      })
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        const quotaByCode = new Map();
+        for (const item of data.schedule || []) {
+          if (item && item.code != null &&
+              item.remaining_quota != null && item.main_quota != null) {
+            quotaByCode.set(String(item.code).trim(), {
+              left: Number(item.remaining_quota),
+              total: Number(item.main_quota),
+            });
+          }
+        }
+        let updated = 0;
+        for (const course of state.courses) {
+          for (const kind of ['LEC', 'LAB', 'PS']) {
+            for (const s of course.groups[kind]) {
+              const quota = quotaByCode.get(s.code);
+              if (quota) { s.quota = quota; updated++; }
+            }
+          }
+        }
+        state.user.schedule = data.schedule || null;
+        renderChips();
+        renderTray();
+        $('status').textContent = updated + ' şubenin kotaları güncellendi.';
+      })
+      .catch((err) => {
+        showError('Kotalar güncellenemedi: ' + (err.message || String(err)));
       });
   }
 
@@ -772,6 +821,7 @@
       if (ui) {
         state.ui = {
           overlap: Boolean(ui.overlap),
+          noQuota: Boolean(ui.noQuota),
           gno: String(ui.gno == null ? '0' : ui.gno),
         };
       }
@@ -855,6 +905,22 @@
       });
     }
 
+    // Refresh quotas from the e-Campus API without reloading the schedule.
+    const refreshBtn = $('refresh-quota');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        const orig = refreshBtn.textContent;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Güncelleniyor…';
+        try {
+          await refreshQuotas();
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = orig;
+        }
+      });
+    }
+
     $('file').addEventListener('change', (e) => {
       const file = e.target.files[0];
       // Clear it so picking the SAME file twice still fires a change event.
@@ -879,6 +945,10 @@
       state.ui.overlap = $('overlap').checked;
       persist();
     });
+    $('noquota').addEventListener('change', () => {
+      state.ui.noQuota = $('noquota').checked;
+      persist();
+    });
     wireTooltip();
     initTheme();
     initUserLogin();
@@ -894,9 +964,11 @@
     const loginBtn = $('login-btn');
     const userPill = $('user-pill');
     const userInfoText = $('user-info-text');
+    const refreshBtn = $('refresh-quota');
 
     if (state.user.loggedIn) {
       if (loginBtn) loginBtn.classList.add('hidden');
+      if (refreshBtn) refreshBtn.classList.add('visible');
       if (userPill) {
         userPill.classList.remove('hidden');
         if (userInfoText) {
@@ -908,6 +980,7 @@
     } else {
       if (loginBtn) loginBtn.classList.remove('hidden');
       if (userPill) userPill.classList.add('hidden');
+      if (refreshBtn) refreshBtn.classList.remove('visible');
     }
   }
 
@@ -1959,7 +2032,11 @@
       const prefs = readPrefs();
       const allowOverlap = $('overlap').checked;
       const chosenWithPrefs = applyPreferences(chosen);
-      const output = Solver.solve(chosenWithPrefs, prefs, { limit: 10, allowOverlap: allowOverlap });
+      const output = Solver.solve(chosenWithPrefs, prefs, {
+        limit: 10,
+        allowOverlap: allowOverlap,
+        excludeNoQuota: $('noquota').checked,
+      });
 
       // Detect locked courses that ended up in the solver's skipped list.
       // These have valid slots but got skipped because the solver couldn't place
@@ -1972,17 +2049,34 @@
         // Courses that have locks AND went to skipped (file-level 0 options):
         // these are caught inside renderResults via lockedAndSkipped.
         // Courses that have locks but were NOT skipped (they had options but
-        // all options conflicted during search):
+        // all options conflicted during search). A lock is only blamed when it
+        // PROVABLY causes the failure: the same selection with just that course
+        // unlocked must become solvable. Otherwise the real cause is an
+        // unrelated clash, and blaming the lock would mislead the user — the
+        // locks a user put on innocent courses never become scapegoats.
         const lockedNotSkipped = chosen.filter(
           (c) => state.lockedSections.has(c.base) &&
                  state.lockedSections.get(c.base).size > 0 &&
                  !skipped.includes(c.base)
         );
-        if (lockedNotSkipped.length > 0) {
+        const lockConflictBases = [];
+        for (const course of lockedNotSkipped) {
+          const savedLocks = state.lockedSections.get(course.base);
+          state.lockedSections.set(course.base, new Set());
+          const unlocked = applyPreferences(chosen);
+          state.lockedSections.set(course.base, savedLocks);
+          const probe = Solver.solve(unlocked, prefs, {
+            limit: 1,
+            allowOverlap: allowOverlap,
+            excludeNoQuota: $('noquota').checked,
+          });
+          if (probe.results.length > 0) lockConflictBases.push(course.base);
+        }
+        if (lockConflictBases.length > 0) {
           output.lockConflict = true;
-          output.lockConflictBases = lockedNotSkipped.map((c) => c.base);
+          output.lockConflictBases = lockConflictBases;
         } else {
-          output.diagnosis = Solver.diagnose(chosenWithPrefs, prefs, { allowOverlap: allowOverlap });
+          output.diagnosis = Solver.diagnose(chosenWithPrefs, prefs, { allowOverlap: allowOverlap, excludeNoQuota: $('noquota').checked });
         }
       }
 

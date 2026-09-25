@@ -1014,6 +1014,7 @@
         </select>
         <span id="gauge" class="sub"></span>
       </div>
+      <button id="refresh-quota" type="button" class="share-btn" title="e-Campus'ten güncel kontenjan bilgilerini çek">♻ Kotaları Güncelle</button>
       <button id="share" type="button" class="share-btn visible">🔗 Bağlantıyı Kopyala</button>
     </div>
 
@@ -1041,6 +1042,7 @@
         <div>
           <label><input id="single" type="checkbox" checked> Tek derslik günlerden kaçın</label>
           <label><input id="overlap" type="checkbox"> Madde 18/2: en fazla 2 ders 1'er saat çakışabilsin</label>
+          <label><input id="noquota" type="checkbox" title="Kontenjanı dolmuş veya kontenjanı olmayan şubeler hesaba katılmasın"> Kotasız şubeleri hesaplama</label>
         </div>
       </div>
       <p class="sub note">Ön koşul ve eş koşul kontrolü yapılmaz. Seçtiğin derslerin ön koşullarını kendin doğrulamalısın.</p>
@@ -1101,10 +1103,10 @@
 <script src="src/xlsx-reader.js?v=13"></script>
 <script src="src/course-parser.js?v=13"></script>
 <script src="src/scoring.js?v=13"></script>
-<script src="src/solver.js?v=13"></script>
+<script src="src/solver.js?v=17"></script>
 <script src="src/pdf-reader.js?v=13"></script>
-<script src="src/schedule-reader.js?v=13"></script>
+<script src="src/schedule-reader.js?v=16"></script>
 <script src="src/ics.js?v=15"></script>
-<script src="src/ui.js?v=13"></script>
+<script src="src/ui.js?v=18"></script>
 </body>
 </html>

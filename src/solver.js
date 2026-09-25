@@ -17,14 +17,19 @@
   // so a truncated row never contributes unknown meeting times to a timetable.
   // A course whose every section is dropped would otherwise vanish from the
   // timetable unannounced, so its base code is reported back in `skipped`.
-  function buildGroups(courses) {
+  // With excludeNoQuota, sections with no remaining quota (full, overbooked or
+  // quota-less) are dropped the same way — a schedule must not recommend a
+  // section the student can no longer join.
+  function buildGroups(courses, excludeNoQuota) {
     const groups = [];
     const skipped = [];
+    const noQuota = (s) => !s.quota || s.quota.left == null || s.quota.left <= 0;
     for (const course of courses) {
       let usable = 0;
       for (const kind of ['LEC', 'LAB', 'PS']) {
-        const options = course.groups[kind].filter(
+        let options = course.groups[kind].filter(
           (s) => !s.truncated && !s.unscheduled && s.slots.length > 0);
+        if (excludeNoQuota) options = options.filter((s) => !noQuota(s));
         if (options.length > 0) { groups.push({ base: course.base, kind, options }); usable++; }
       }
       if (usable === 0) skipped.push(course.base);
@@ -43,8 +48,8 @@
   }
 
   function solve(courses, prefs, options) {
-    const opts = Object.assign({ limit: 10, allowOverlap: false, nodeCap: 2000000 }, options || {});
-    const { groups, skipped } = buildGroups(courses);
+    const opts = Object.assign({ limit: 10, allowOverlap: false, nodeCap: 2000000, excludeNoQuota: false }, options || {});
+    const { groups, skipped } = buildGroups(courses, opts.excludeNoQuota);
     // Retained results are compacted back to `limit` whenever they exceed this,
     // so peak memory is a small constant multiple of the requested result count
     // no matter how many leaves the search visits.
@@ -260,11 +265,11 @@
   // Why does this selection have no conflict-free arrangement? "No combination
   // found" names the symptom; this names the courses responsible.
   function diagnose(courses, prefs, options) {
-    const opts = Object.assign({ nodeCap: DIAGNOSE_NODE_CAP, allowOverlap: false },
+    const opts = Object.assign({ nodeCap: DIAGNOSE_NODE_CAP, allowOverlap: false, excludeNoQuota: false },
       options || {});
     // Every probe runs in the same mode as the search being explained, or the
     // diagnosis would blame a pair the user's own settings actually permit.
-    const probe = { limit: 1, nodeCap: opts.nodeCap, allowOverlap: opts.allowOverlap };
+    const probe = { limit: 1, nodeCap: opts.nodeCap, allowOverlap: opts.allowOverlap, excludeNoQuota: opts.excludeNoQuota };
 
     const full = solve(courses, prefs, probe);
     const skipped = full.skipped;
