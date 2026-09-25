@@ -735,7 +735,14 @@
       } else {
         togglePreference(base, code);
       }
+      // Şube işlemi (tercih/kilit/engel) yapmak = o dersi istiyor olmak.
+      // Ders henüz listeye eklenmemişse otomatik ekle (geçilmiş dersler hariç).
+      if (!state.selected.has(base) && !isPassedCourse(base)) {
+        state.selected.add(base);
+        persist();
+      }
       renderTray();
+      renderSummary();
       // Tooltip'i aynı yerde, içeriği güncel halde tut — tekrar tıklama yok.
       cancelHide();
       refreshTip(base);
