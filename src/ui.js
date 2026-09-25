@@ -1884,15 +1884,27 @@
       return;
     }
 
-    // Soft skipped warning (no lock involved).
+    // Soft skipped warning (no lock involved). If the no-quota filter caused the
+    // skip, say so instead of blaming unreadable hours.
     const softSkipped = skipped.filter(
       (base) => !(state.lockedSections.has(base) && state.lockedSections.get(base).size > 0)
     );
-    if (softSkipped.length > 0) {
+    const quotaExcluded = output.quotaExcluded || [];
+    const quotaSkippedBases = new Set();
+    for (const f of quotaExcluded) quotaSkippedBases.add(f.base);
+    const skippedByQuota = softSkipped.filter((base) => quotaSkippedBases.has(base));
+    const skippedByFile = softSkipped.filter((base) => !quotaSkippedBases.has(base));
+    if (skippedByFile.length > 0) {
       box.innerHTML += '<div class="card warn"><strong>Şu dersler programa eklenemedi: ' +
-        softSkipped.map(escapeHtml).join(', ') + '</strong><br>' +
+        skippedByFile.map(escapeHtml).join(', ') + '</strong><br>' +
         'Bu derslerin ders saatleri dosyadan okunamadı, bu yüzden yerleştirilemediler. ' +
         'Saatlerini resmi ders programından kendin kontrol etmelisin.</div>';
+    }
+    if (skippedByQuota.length > 0) {
+      box.innerHTML += '<div class="card warn"><strong>Şu dersler kota filtresi nedeniyle programa eklenemedi: ' +
+        skippedByQuota.map(escapeHtml).join(', ') + '</strong><br>' +
+        'Bu derslerin tüm şubelerinin kontenjanı doldu veya kontenjan bilgisi yok, ' +
+        'bu yüzden hesaplamadan çıkarıldılar. Filtreyi kapatıp yeniden deneyebilirsin.</div>';
     }
 
     // Show the truncation notice regardless of whether any results were found.
@@ -1902,6 +1914,22 @@
     }
 
     if (output.results.length === 0) {
+      // No solution found: name WHICH sections the quota filter removed, so the
+      // failure is not a mystery when the filter silently shrank the pool.
+      if (quotaExcluded.length > 0) {
+        const items = quotaExcluded
+          .map((f) => '<li>' +
+            escapeHtml(f.code) +
+            (f.instructor ? ' <span class="sub">' + escapeHtml(f.instructor) + '</span>' : '') +
+            ' <span class="sub">' +
+            (f.quota ? escapeHtml(f.quota.left + '/' + f.quota.total) : 'kota yok') +
+            '</span></li>')
+          .join('');
+        box.innerHTML += '<div class="card warn"><strong>Kota filtresi şu şubeleri hesaplamadan çıkardı:</strong>' +
+          '<ul style="margin:8px 0 4px; padding-left:20px;">' + items + '</ul>' +
+          '<p class="sub">Bu şubelerin kontenjanı dolduğu veya kontenjan bilgisi olmadığı için ' +
+          'seçenekler arasından çıkarıldı. Kalan şubelerle çakışmasız program bulunamadı.</p></div>';
+      }
       const nothingToPlan = chosen.length > 0 && skipped.length === chosen.length;
       box.innerHTML += nothingToPlan
         ? '<div class="card err">Seçtiğin derslerin hiçbirinin ders saati okunamadı, ' +

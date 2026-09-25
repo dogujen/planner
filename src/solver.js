@@ -19,24 +19,41 @@
   // timetable unannounced, so its base code is reported back in `skipped`.
   // With excludeNoQuota, sections with no remaining quota (full, overbooked or
   // quota-less) are dropped the same way — a schedule must not recommend a
-  // section the student can no longer join.
+  // section the student can no longer join. Every such section is also
+  // reported in `quotaExcluded` so the UI can say WHAT was dropped and why.
   function buildGroups(courses, excludeNoQuota) {
     const groups = [];
     const skipped = [];
+    const quotaExcluded = [];
     const noQuota = (s) => !s.quota || s.quota.left == null || s.quota.left <= 0;
     for (const course of courses) {
       let usable = 0;
       for (const kind of ['LEC', 'LAB', 'PS']) {
         let options = course.groups[kind].filter(
           (s) => !s.truncated && !s.unscheduled && s.slots.length > 0);
-        if (excludeNoQuota) options = options.filter((s) => !noQuota(s));
+        if (excludeNoQuota) {
+          for (const s of options) {
+            if (noQuota(s)) {
+              quotaExcluded.push({
+                code: s.code,
+                base: course.base,
+                sectionNo: s.sectionNo,
+                kind,
+                title: s.title || '',
+                instructor: s.instructor || '',
+                quota: s.quota ? { left: s.quota.left, total: s.quota.total } : null,
+              });
+            }
+          }
+          options = options.filter((s) => !noQuota(s));
+        }
         if (options.length > 0) { groups.push({ base: course.base, kind, options }); usable++; }
       }
       if (usable === 0) skipped.push(course.base);
     }
     // Fewest options first: conflicts surface early and prune more.
     groups.sort((a, b) => a.options.length - b.options.length);
-    return { groups, skipped };
+    return { groups, skipped, quotaExcluded };
   }
 
   function signatureOf(sections) {
@@ -49,7 +66,7 @@
 
   function solve(courses, prefs, options) {
     const opts = Object.assign({ limit: 10, allowOverlap: false, nodeCap: 2000000, excludeNoQuota: false }, options || {});
-    const { groups, skipped } = buildGroups(courses, opts.excludeNoQuota);
+    const { groups, skipped, quotaExcluded } = buildGroups(courses, opts.excludeNoQuota);
     // Retained results are compacted back to `limit` whenever they exceed this,
     // so peak memory is a small constant multiple of the requested result count
     // no matter how many leaves the search visits.
@@ -228,7 +245,7 @@
       entry.score = best === worst ? 100 : Math.round(((entry.rawScore - worst) / (best - worst)) * 100);
     }
 
-    return { results: top, truncated, explored, considered, skipped, retained };
+    return { results: top, truncated, explored, considered, skipped, retained, quotaExcluded };
   }
 
   // A search wide enough to answer "is this satisfiable at all" without letting
