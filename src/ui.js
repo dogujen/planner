@@ -740,6 +740,11 @@
       if (!state.selected.has(base) && !isPassedCourse(base)) {
         state.selected.add(base);
         persist();
+        // Chip listesini yeniden çizmeden (tooltip kapanmasın) sadece o chip'i
+        // seçili/mavi yap; listeye tıklanmış gibi davran.
+        const chipInput = document.querySelector(
+          '.chip[data-base="' + CSS.escape(base) + '"] input[type="checkbox"]');
+        if (chipInput) chipInput.checked = true;
       }
       renderTray();
       renderSummary();
