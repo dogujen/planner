@@ -915,6 +915,8 @@
     });
     wireTooltip();
     initUserLogin();
+    initRememberedLogin();
+    initMobileWarning();
     $('fdw').addEventListener('input', () => { $('fdwOut').textContent = $('fdw').value; });
     $('cmp').addEventListener('input', () => { $('cmpOut').textContent = $('cmp').value; });
     $('go').addEventListener('click', run);
@@ -1285,6 +1287,62 @@
     renderSummary();
   }
 
+  function saveRememberedCredentials(credentials) {
+    try {
+      if (credentials) {
+        localStorage.setItem('planner_ecampus_creds', JSON.stringify(credentials));
+      } else {
+        localStorage.removeItem('planner_ecampus_creds');
+      }
+    } catch (e) {}
+  }
+
+  // Kayıtlı şifre varsa oturumu sessizce canlandır:
+  // oturum varsa sadece kimlik bilgilerini belleğe al (Çek butonu çalışsın),
+  // yoksa API'ye sessiz giriş dene (uygulama tam kendine gelsin).
+  function initRememberedLogin() {
+    let saved = null;
+    try {
+      const raw = localStorage.getItem('planner_ecampus_creds');
+      if (raw) saved = JSON.parse(raw);
+    } catch (e) {}
+    if (!saved || !saved.email || !saved.password) return;
+
+    if (state.user.loggedIn) {
+      state.user.credentials = { email: saved.email, password: saved.password };
+      return;
+    }
+
+    const url = 'https://ecampusdb.dogukervan.me/?' + new URLSearchParams({
+      ECampusUsername: saved.email,
+      ECampusPassword: saved.password,
+      ECampusLanguageId: '2',
+    });
+    fetch(url)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status))))
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        handleLoginSuccess(data, { email: saved.email, password: saved.password });
+      })
+      .catch(() => { /* sessiz geç — kullanıcı manuel giriş yapabilir */ });
+  }
+
+  function initMobileWarning() {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i
+      .test(navigator.userAgent);
+    if (!isMobile) return;
+    let seen = false;
+    try { seen = localStorage.getItem('dpi.mobileWarn') === '1'; } catch (e) {}
+    if (seen) return;
+    const bar = $('mobile-warn');
+    if (bar) {
+      bar.classList.remove('hidden');
+      const close = bar.querySelector('button');
+      if (close) close.addEventListener('click', () => bar.classList.add('hidden'));
+    }
+    try { localStorage.setItem('dpi.mobileWarn', '1'); } catch (e) {}
+  }
+
   function logoutUser() {
     state.user.loggedIn = false;
     state.user.gpa = null;
@@ -1300,6 +1358,7 @@
     try {
       localStorage.removeItem('planner_ecampus_user');
     } catch (e) {}
+    saveRememberedCredentials(null);
 
     applyStudentAktsOverwrites();
     updateUserUi();
@@ -1624,6 +1683,8 @@
             throw new Error(data.error);
           }
           handleLoginSuccess(data, { email, password: pass });
+          saveRememberedCredentials($('remember-pass').checked
+            ? { email, password: pass } : null);
           if (modal) modal.classList.add('hidden');
           $('login-pass').value = '';
         } catch (err) {

@@ -154,6 +154,32 @@
   }
 
   /* Sayfa altı footer */
+  .mobile-warn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    border-radius: var(--radius-md);
+    background: rgba(251, 191, 36, 0.08);
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .mobile-warn span { flex: 1; }
+  .mobile-warn strong { color: #fbbf24; }
+  .mobile-warn button {
+    border: 0;
+    background: none;
+    color: #a1a1a1;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 999px;
+  }
+  .mobile-warn button:hover { color: #fafafa; background: #202020; }
   .page-footer {
     padding: 28px 20px 40px;
     text-align: center;
@@ -995,6 +1021,10 @@
   </aside>
   <div class="shell-main">
 <main id="top">
+  <div id="mobile-warn" class="mobile-warn hidden">
+    <span><strong>Uyarı:</strong> Bu uygulama büyük ekranlar için tasarlanmıştır. En iyi deneyimi bilgisayardan kullanarak elde edersiniz — telefonda takvim ve bazı bölümler dar görünebilir.</span>
+    <button type="button" title="Kapat" aria-label="Kapat">&times;</button>
+  </div>
   <header class="top-header">
     <div class="header-brand">
       <h1>Ders Programı Planlayıcı</h1>
@@ -1124,6 +1154,11 @@
         <input id="login-pass" type="password" placeholder="Şifreniz" required>
       </div>
       <div id="login-err" class="login-err hidden"></div>
+      <div class="form-field" style="margin-bottom: 10px;">
+        <label style="display:flex; align-items:center; gap:8px; margin:0; cursor:pointer;">
+          <input id="remember-pass" type="checkbox" checked style="width:auto; accent-color:#1f40b0;"> Şifremi kaydet
+        </label>
+      </div>
       <div class="modal-footer">
         <button type="submit" id="login-submit-btn" class="primary">Giriş Yap</button>
       </div>
@@ -1159,6 +1194,6 @@
 <script src="src/pdf-reader.js?v=13"></script>
 <script src="src/schedule-reader.js?v=16"></script>
 <script src="src/ics.js?v=15"></script>
-<script src="src/ui.js?v=26"></script>
+<script src="src/ui.js?v=27"></script>
 </body>
 </html>
